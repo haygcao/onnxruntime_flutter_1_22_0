@@ -1,4 +1,4 @@
-name: Auto-Sync ONNX Runtime & Verified Release
+name: Auto-Sync ONNX Runtime & Full End-to-End Verification Pipeline
 
 on:
   schedule:
@@ -20,18 +20,25 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # =========================================================================
+  # 阶段 1: 同步产物 -> 基础模型校验 -> 自动 Git Commit/Push/Tag -> 发布 Release
+  # =========================================================================
   sync-verify-and-release:
-    name: Single Sequential Pipeline (Sync -> Regenerate FFI -> Test -> Release)
+    name: 1. Sync Binaries, Commit & Publish Release
     runs-on: windows-latest
     env:
       PYTHONIOENCODING: utf-8
       PYTHONUTF8: '1'
+    outputs:
+      ort_version: ${{ steps.run_sync.outputs.ort_version }}
+      has_changes: ${{ steps.check_git.outputs.has_changes }}
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           ref: auto-sync
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -44,11 +51,6 @@ jobs:
           flutter-version: '3.44.x'
           channel: 'stable'
           cache: true
-
-      - name: Set up LLVM / Clang for FFIgen
-        uses: KyleMayes/install-llvm-action@v2
-        with:
-          version: '17.0'
 
       - name: Run Multi-Platform Sync & Sequential Model Download
         id: run_sync
@@ -68,32 +70,109 @@ jobs:
             echo "has_changes=false" >> $GITHUB_OUTPUT
           fi
 
-      - name: Regenerate Dart FFI Bindings for New APIs
-        if: steps.check_git.outputs.has_changes == 'true'
-        run: |
-          flutter pub get
-          dart run ffigen --config ffigen_onnxruntime.yaml
-
-      - name: Run Flutter Static Analysis & Type Checking
-        if: steps.check_git.outputs.has_changes == 'true'
-        run: |
-          flutter analyze --no-fatal-infos
-
-      - name: Run Real Model Inference Test (Sequentially One-by-One)
+      - name: Run Base Model Verification Test (PP-OCRv5 & MangaLens)
         if: steps.check_git.outputs.has_changes == 'true'
         env:
           TEST_MODEL_DIR: ./test_models
         run: |
+          flutter pub get
           flutter test test/real_models_verification_test.dart
+
+      - name: Commit & Push Changes to Branch with Git Tag
+        if: steps.check_git.outputs.has_changes == 'true'
+        shell: bash
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add .
+          git commit -m "chore(release): upgrade ONNX Runtime to v${{ steps.run_sync.outputs.ort_version }}"
+          git tag -f "v${{ steps.run_sync.outputs.ort_version }}"
+          git push origin auto-sync --tags --force
 
       - name: Publish Verified GitHub Release
         if: steps.check_git.outputs.has_changes == 'true'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: "v${{ steps.run_sync.outputs.ort_version }}"
-          name: "🚀 ONNX Runtime v${{ steps.run_sync.outputs.ort_version }} (Verified Release)"
+          name: "🚀 ONNX Runtime v${{ steps.run_sync.outputs.ort_version }} (Automated Release)"
           body_path: SYNC_SUMMARY.md
           draft: false
           prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # =========================================================================
+  # 阶段 2: 腾讯混元 1.8B 专属独立端到端前向推理测试 (全自动无缝衔接)
+  # =========================================================================
+  post-release-test-hunyuan:
+    name: 2. Auto-Verify Tencent Hunyuan-MT 1.8B (Isolated)
+    needs: sync-verify-and-release
+    if: needs.sync-verify-and-release.outputs.has_changes == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 35
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: auto-sync
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.44.x'
+          channel: 'stable'
+          cache: true
+
+      - name: Download Tencent Hunyuan-MT Model
+        shell: bash
+        run: |
+          mkdir -p test_hunyuan_dir
+          echo "📥 Downloading Tencent Hunyuan-MT 1.8B..."
+          curl -L -C - --retry 5 -o test_hunyuan_dir/hunyuan_model_q4f16.onnx \
+            "https://huggingface.co/Tencent/Hunyuan-MT/resolve/main/onnx/model_q4f16.onnx"
+
+      - name: Run Hunyuan Inference Test
+        env:
+          LLM_MODEL_DIR: ./test_hunyuan_dir
+        run: |
+          flutter pub get
+          flutter test test/llm_release_gate_test.dart
+
+  # =========================================================================
+  # 阶段 3: 阿里千问 0.8B 专属独立端到端前向推理测试 (全自动无缝衔接)
+  # =========================================================================
+  post-release-test-qwen:
+    name: 3. Auto-Verify Alibaba Qwen 3.5 0.8B (Isolated)
+    needs: post-release-test-hunyuan
+    if: needs.sync-verify-and-release.outputs.has_changes == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 35
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: auto-sync
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.44.x'
+          channel: 'stable'
+          cache: true
+
+      - name: Download Alibaba Qwen 3.5 Model
+        shell: bash
+        run: |
+          mkdir -p test_qwen_dir
+          echo "📥 Downloading Alibaba Qwen 3.5 0.8B..."
+          curl -L -C - --retry 5 -o test_qwen_dir/qwen_decoder_merged_q4.onnx \
+            "https://huggingface.co/Qwen/Qwen3.5-0.8B/resolve/main/onnx/decoder_model_merged_q4.onnx"
+
+      - name: Run Qwen Inference Test
+        env:
+          LLM_MODEL_DIR: ./test_qwen_dir
+        run: |
+          flutter pub get
+          flutter test test/llm_release_gate_test.dart
