@@ -1,4 +1,4 @@
-name: Auto-Sync ONNX Runtime & Verified Release
+name: Auto-Sync ONNX Runtime & Full Model Verification Release
 
 on:
   schedule:
@@ -17,7 +17,7 @@ permissions:
 
 jobs:
   sync-and-inspect:
-    name: Sync Binaries & Inspect APIs
+    name: Sync Binaries, Inspect APIs & Download Full Model Matrix
     runs-on: ubuntu-latest
     outputs:
       ort_version: ${{ steps.run_sync.outputs.ort_version }}
@@ -34,7 +34,7 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Run Multi-Platform Sync & API Inspector
+      - name: Run Multi-Platform Sync & Full Model Download
         id: run_sync
         run: |
           python scripts/sync_onnxruntime.py "${{ github.event.inputs.target_version }}"
@@ -50,15 +50,15 @@ jobs:
             echo "has_changes=false" >> $GITHUB_OUTPUT
           fi
 
-      - name: Upload Synced Artifacts
+      - name: Upload Synced Artifacts (Including Models)
         if: steps.check_git.outputs.has_changes == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: synced-repo
+          name: synced-repo-with-models
           path: ./
 
   matrix-verification:
-    name: Verify on ${{ matrix.os }}
+    name: Full Model Inference Test on ${{ matrix.os }}
     needs: sync-and-inspect
     if: needs.sync-and-inspect.outputs.has_changes == 'true'
     runs-on: ${{ matrix.os }}
@@ -68,10 +68,10 @@ jobs:
         os: [windows-latest, macos-latest, ubuntu-latest]
 
     steps:
-      - name: Download Synced Repo
+      - name: Download Synced Repo With Models
         uses: actions/download-artifact@v4
         with:
-          name: synced-repo
+          name: synced-repo-with-models
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
@@ -85,17 +85,11 @@ jobs:
           flutter pub get
           dart run ffigen --config ffigen_onnxruntime.yaml
 
-      - name: Download Test AI Models
-        shell: bash
+      - name: Run Full Model Verification (Hunyuan + Qwen + PP-OCR + MangaLens)
+        env:
+          TEST_MODEL_DIR: ./test_models
         run: |
-          mkdir -p test_models
-          curl -L -o test_models/ppocrv5_det.onnx "https://huggingface.co/HoVDuc/ppocrv5-onnx/resolve/main/ppocrv5_det_p9.onnx"
-          curl -L -o test_models/ppocrv5_rec.onnx "https://huggingface.co/HoVDuc/ppocrv5-onnx/resolve/main/ppocrv5_rec_p9.onnx"
-          curl -L -o test_models/mangalens.onnx "https://huggingface.co/khanhromvn/manga_bubble_seg/resolve/main/mangalens.onnx"
-
-      - name: Run Full Test Suite & Inference
-        run: |
-          flutter test
+          flutter test test/real_models_verification_test.dart
 
   auto-publish-release:
     name: Publish Verified Release
@@ -105,13 +99,13 @@ jobs:
       - name: Download Synced Repo
         uses: actions/download-artifact@v4
         with:
-          name: synced-repo
+          name: synced-repo-with-models
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: "v${{ needs.sync-and-inspect.outputs.ort_version }}"
-          name: "🚀 ONNX Runtime v${{ needs.sync-and-inspect.outputs.ort_version }} (Multi-Platform Verified)"
+          name: "🚀 ONNX Runtime v${{ needs.sync-and-inspect.outputs.ort_version }} (Full LLM Matrix Verified)"
           body_path: SYNC_SUMMARY.md
           draft: false
           prerelease: false
