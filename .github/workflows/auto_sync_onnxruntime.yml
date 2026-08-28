@@ -1,4 +1,4 @@
-name: Auto-Sync ONNX Runtime & Real Model Verification
+name: Auto-Sync ONNX Runtime & Verified Release
 
 on:
   schedule:
@@ -16,15 +16,62 @@ permissions:
   pull-requests: write
 
 jobs:
-  check-and-verify:
-    name: Check Latest ORT & Run Verification
-    runs-on: windows-latest
+  sync-and-inspect:
+    name: Sync Binaries & Inspect APIs
+    runs-on: ubuntu-latest
+    outputs:
+      ort_version: ${{ steps.run_sync.outputs.ort_version }}
+      has_changes: ${{ steps.check_git.outputs.has_changes }}
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           ref: auto-sync
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Run Multi-Platform Sync & API Inspector
+        id: run_sync
+        run: |
+          python scripts/sync_onnxruntime.py "${{ github.event.inputs.target_version }}"
+          VERSION=$(grep -m 1 "Release Tag" SYNC_SUMMARY.md | awk -F'`' '{print $2}' | sed 's/^v//')
+          echo "ort_version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Check if files were modified
+        id: check_git
+        run: |
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Upload Synced Artifacts
+        if: steps.check_git.outputs.has_changes == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: synced-repo
+          path: ./
+
+  matrix-verification:
+    name: Verify on ${{ matrix.os }}
+    needs: sync-and-inspect
+    if: needs.sync-and-inspect.outputs.has_changes == 'true'
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: true
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+
+    steps:
+      - name: Download Synced Repo
+        uses: actions/download-artifact@v4
+        with:
+          name: synced-repo
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
@@ -33,93 +80,40 @@ jobs:
           channel: 'stable'
           cache: true
 
-      - name: Fetch Latest ONNX Runtime Release Info
-        id: get_release
-        shell: pwsh
-        run: |
-          $inputVer = "${{ github.event.inputs.target_version }}".Trim()
-          if ($inputVer -ne "") {
-            $tag = if ($inputVer.StartsWith("v")) { $inputVer } else { "v$inputVer" }
-            $apiUrl = "https://api.github.com/repos/microsoft/onnxruntime/releases/tags/$tag"
-          } else {
-            $apiUrl = "https://api.github.com/repos/microsoft/onnxruntime/releases/latest"
-          }
-          
-          Write-Host "Querying: $apiUrl"
-          $response = Invoke-RestMethod -Uri $apiUrl -Headers @{ "User-Agent" = "GitHub-Action" }
-          $versionTag = $response.tag_name
-          $cleanVersion = $versionTag.TrimStart('v')
-          
-          Write-Host "Latest ONNX Runtime version found: $cleanVersion ($versionTag)"
-          echo "version=$cleanVersion" >> $env:GITHUB_OUTPUT
-          echo "tag=$versionTag" >> $env:GITHUB_OUTPUT
-
-      - name: Download & Update Windows DLL and C Headers
-        shell: pwsh
-        run: |
-          $version = "${{ steps.get_release.outputs.version }}"
-          $zipUrl = "https://github.com/microsoft/onnxruntime/releases/download/v$version/onnxruntime-win-x64-$version.zip"
-          Write-Host "Downloading: $zipUrl"
-          
-          $outputZip = "$env:TEMP/ort_win_x64.zip"
-          $extractDir = "$env:TEMP/ort_win_x64_extracted"
-          
-          Invoke-WebRequest -Uri $zipUrl -OutFile $outputZip
-          Expand-Archive -Path $outputZip -DestinationPath $extractDir -Force
-          
-          $extractedRoot = Get-ChildItem -Path $extractDir -Directory | Select-Object -First 1
-          
-          # 1. 更新 windows/onnxruntime.dll
-          Copy-Item "$($extractedRoot.FullName)/lib/onnxruntime.dll" "windows/onnxruntime.dll" -Force
-          Write-Host "Successfully updated windows/onnxruntime.dll"
-          
-          # 2. 更新 C API 头文件 (用于 ffigen)
-          if (Test-Path "$($extractedRoot.FullName)/include/onnxruntime_c_api.h") {
-            Copy-Item "$($extractedRoot.FullName)/include/onnxruntime_c_api.h" "src/onnxruntime/onnxruntime_c_api.h" -Force
-            Write-Host "Successfully updated src/onnxruntime/onnxruntime_c_api.h"
-          }
-
       - name: Regenerate Dart FFI Bindings
         run: |
           flutter pub get
           dart run ffigen --config ffigen_onnxruntime.yaml
 
-      - name: Download AI Models for Real-world Verification
-        shell: pwsh
+      - name: Download Test AI Models
+        shell: bash
         run: |
-          $modelDir = "$env:TEMP/onnx_models"
-          New-Item -ItemType Directory -Force -Path $modelDir | Out-Null
-          
-          # 官方真实模型列表 (包含目标检测、OCR、高版本 IR 10 模型)
-          $models = @(
-            @{ Name = "ppocrv5_det.onnx"; Url = "https://huggingface.co/HoVDuc/ppocrv5-onnx/resolve/main/ppocrv5_det_p9.onnx" },
-            @{ Name = "ppocrv5_rec.onnx"; Url = "https://huggingface.co/HoVDuc/ppocrv5-onnx/resolve/main/ppocrv5_rec_p9.onnx" },
-            @{ Name = "mangalens.onnx"; Url = "https://huggingface.co/khanhromvn/manga_bubble_seg/resolve/main/mangalens.onnx" }
-          )
-          
-          foreach ($m in $models) {
-            $dest = Join-Path $modelDir $m.Name
-            Write-Host "Downloading test model: $($m.Name)..."
-            Invoke-WebRequest -Uri $m.Url -OutFile $dest
-          }
-          
-          echo "TEST_MODEL_DIR=$modelDir" >> $env:GITHUB_ENV
+          mkdir -p test_models
+          curl -L -o test_models/ppocrv5_det.onnx "https://huggingface.co/HoVDuc/ppocrv5-onnx/resolve/main/ppocrv5_det_p9.onnx"
+          curl -L -o test_models/ppocrv5_rec.onnx "https://huggingface.co/HoVDuc/ppocrv5-onnx/resolve/main/ppocrv5_rec_p9.onnx"
+          curl -L -o test_models/mangalens.onnx "https://huggingface.co/khanhromvn/manga_bubble_seg/resolve/main/mangalens.onnx"
 
-      - name: Run Flutter Tests & Real Model Inference
+      - name: Run Full Test Suite & Inference
         run: |
           flutter test
 
-      - name: Check for Changes & Create Pull Request
-        uses: peter-evans/create-pull-request@v6
+  auto-publish-release:
+    name: Publish Verified Release
+    needs: [sync-and-inspect, matrix-verification]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download Synced Repo
+        uses: actions/download-artifact@v4
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          commit-message: "chore(ort): auto-upgrade ONNX Runtime to ${{ steps.get_release.outputs.version }}"
-          title: "🤖 [Auto-Sync] Upgrade ONNX Runtime to ${{ steps.get_release.outputs.version }}"
-          body: |
-            ## 🚀 Automated ONNX Runtime Upgrade
-            - **New Version**: `${{ steps.get_release.outputs.version }}`
-            - **Artifact Source**: [Microsoft ONNX Runtime Release v${{ steps.get_release.outputs.version }}](https://github.com/microsoft/onnxruntime/releases/tag/v${{ steps.get_release.outputs.version }})
-            - **FFI Bindings**: Automatically regenerated with `ffigen`.
-            - **Test Suite**: ✅ All real-world models (PP-OCRv5, MangaLens) passed full inference verification on Windows!
-          branch: "sync-ort-${{ steps.get_release.outputs.version }}"
-          base: "auto-sync"
+          name: synced-repo
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: "v${{ needs.sync-and-inspect.outputs.ort_version }}"
+          name: "🚀 ONNX Runtime v${{ needs.sync-and-inspect.outputs.ort_version }} (Multi-Platform Verified)"
+          body_path: SYNC_SUMMARY.md
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
