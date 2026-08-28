@@ -1,5 +1,5 @@
 import 'dart:io';
-import 'dart:typed_data';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:onnxruntime_v2/onnxruntime_v2.dart';
 
@@ -19,14 +19,14 @@ void main() {
 
     test('Verify Vision, OCR, and LLM models execute actual tensor inferences', () async {
       if (!modelDir.existsSync()) {
-        print('⚠️ Model directory ($modelDirStr) does not exist, skipping inference run.');
+        debugPrint('⚠️ Model directory ($modelDirStr) does not exist, skipping inference run.');
         return;
       }
 
-      print('🖼️ Checking test asset images in ${assetsDir.path}...');
+      debugPrint('🖼️ Checking test asset images in ${assetsDir.path}...');
       if (assetsDir.existsSync()) {
         for (final item in assetsDir.listSync()) {
-          print('  - Asset: ${item.uri.pathSegments.last} (${item.statSync().size} bytes)');
+          debugPrint('  - Asset: ${item.uri.pathSegments.last} (${item.statSync().size} bytes)');
         }
       }
 
@@ -36,16 +36,16 @@ void main() {
           .where((f) => f.path.endsWith('.onnx'))
           .toList();
 
-      print('\n📦 Discovered ${onnxFiles.length} ONNX models for end-to-end forward inference test:');
+      debugPrint('\n📦 Discovered ${onnxFiles.length} ONNX models for end-to-end forward inference test:');
       for (final f in onnxFiles) {
-        print('  - ${f.uri.pathSegments.last} (${(f.lengthSync() / (1024 * 1024)).toStringAsFixed(2)} MB)');
+        debugPrint('  - ${f.uri.pathSegments.last} (${(f.lengthSync() / (1024 * 1024)).toStringAsFixed(2)} MB)');
       }
 
       for (final modelFile in onnxFiles) {
         final fileName = modelFile.uri.pathSegments.last.toLowerCase();
-        print('\n⚡ ========================================================');
-        print('⚡ Testing Real Forward Inference: $fileName');
-        print('⚡ ========================================================');
+        debugPrint('\n⚡ ========================================================');
+        debugPrint('⚡ Testing Real Forward Inference: $fileName');
+        debugPrint('⚡ ========================================================');
 
         final sessionOptions = OrtSessionOptions();
         await sessionOptions.appendDefaultProviders();
@@ -59,7 +59,7 @@ void main() {
 
           final inputNames = session.inputNames;
           final outputNames = session.outputNames;
-          print('  ✅ Model Graph Loaded. Inputs: $inputNames | Outputs: $outputNames');
+          debugPrint('  ✅ Model Graph Loaded. Inputs: $inputNames | Outputs: $outputNames');
 
           final runOptions = OrtRunOptions();
           Map<String, OrtValue> inputTensors = {};
@@ -70,7 +70,6 @@ void main() {
             final shape = [1, 3, 640, 640];
             final totalElements = 1 * 3 * 640 * 640;
             final floatData = Float32List(totalElements);
-            // 填入模拟归一化图像数据
             for (var i = 0; i < totalElements; i++) {
               floatData[i] = (i % 255) / 255.0;
             }
@@ -105,13 +104,14 @@ void main() {
           }
 
           if (inputTensors.isNotEmpty) {
-            print('  🚀 Executing session.run with real inputs...');
+            debugPrint('  🚀 Executing session.run with real inputs...');
             final outputs = session.run(runOptions, inputTensors);
             expect(outputs, isNotNull);
-            print('  🎉 Forward Inference PASS! Generated ${outputs.length} output tensors.');
-            for (final entry in outputs.entries) {
-              print('     - Output [${entry.key}]: Tensor computed successfully');
-              entry.value?.release();
+            debugPrint('  🎉 Forward Inference PASS! Generated ${outputs.length} output tensors.');
+            for (var i = 0; i < outputs.length; i++) {
+              final outVal = outputs[i];
+              debugPrint('     - Output [$i]: Computed successfully');
+              outVal?.release();
             }
           }
 
