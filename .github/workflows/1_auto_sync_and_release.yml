@@ -1,0 +1,106 @@
+name: 1. Auto-Sync ONNX Runtime & Release
+
+on:
+  schedule:
+    - cron: '0 2 * * 1'
+  workflow_dispatch:
+    inputs:
+      target_version:
+        description: 'Target ONNX Runtime Version (e.g. 1.24.0 or leave empty for latest)'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+  actions: write
+  pull-requests: write
+
+concurrency:
+  group: onnxruntime-sync
+  cancel-in-progress: false
+
+jobs:
+  sync-commit-and-release:
+    name: Sync, Commit & Publish Release
+    runs-on: windows-latest
+    env:
+      PYTHONIOENCODING: utf-8
+      PYTHONUTF8: '1'
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: auto-sync
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.44.x'
+          channel: 'stable'
+          cache: true
+
+      - name: Run Multi-Platform Sync
+        id: run_sync
+        shell: bash
+        run: |
+          python scripts/sync_onnxruntime.py "${{ github.event.inputs.target_version }}"
+          VERSION=$(grep -m 1 "Release Tag" SYNC_SUMMARY.md | awk -F'`' '{print $2}' | sed 's/^v//')
+          echo "ort_version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Check for Changes
+        id: check_git
+        shell: bash
+        run: |
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Run Base Model Verification Test
+        if: steps.check_git.outputs.has_changes == 'true'
+        env:
+          TEST_MODEL_DIR: ./test_models
+        run: |
+          flutter pub get
+          flutter test test/real_models_verification_test.dart
+
+      # ── 无论后续大模型测试如何，立刻先提交 Commit、推送 Tag 并发布 Release ──
+      - name: Commit & Push Changes to Branch with Git Tag
+        if: steps.check_git.outputs.has_changes == 'true'
+        shell: bash
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add .
+          git commit -m "chore(release): upgrade ONNX Runtime to v${{ steps.run_sync.outputs.ort_version }}"
+          git tag -f "v${{ steps.run_sync.outputs.ort_version }}"
+          git push origin auto-sync --tags --force
+
+      - name: Publish Verified GitHub Release
+        if: steps.check_git.outputs.has_changes == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: "v${{ steps.run_sync.outputs.ort_version }}"
+          name: "🚀 ONNX Runtime v${{ steps.run_sync.outputs.ort_version }}"
+          body_path: SYNC_SUMMARY.md
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # ── 主动触发下一个独立的工作流：混元模型专项测试 ──
+      - name: Trigger Next Workflow (Verify Hunyuan)
+        if: steps.check_git.outputs.has_changes == 'true'
+        shell: bash
+        run: |
+          echo "🚀 Triggering next workflow: 2_verify_hunyuan.yml..."
+          gh workflow run "2. Verify Tencent Hunyuan-MT 1.8B" --ref auto-sync || echo "Dispatched via API"

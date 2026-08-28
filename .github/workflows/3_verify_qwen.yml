@@ -1,0 +1,41 @@
+name: 3. Verify Alibaba Qwen 3.5 0.8B
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test-qwen:
+    name: Verify Alibaba Qwen 3.5 0.8B (Isolated)
+    runs-on: windows-latest
+    timeout-minutes: 35
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: auto-sync
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.44.x'
+          channel: 'stable'
+          cache: true
+
+      - name: Download Alibaba Qwen 3.5 Model
+        shell: bash
+        run: |
+          mkdir -p test_qwen_dir
+          echo "📥 Downloading Alibaba Qwen 3.5 0.8B..."
+          curl -L -C - --retry 5 -o test_qwen_dir/qwen_decoder_merged_q4.onnx \
+            "https://huggingface.co/Qwen/Qwen3.5-0.8B/resolve/main/onnx/decoder_model_merged_q4.onnx"
+
+      - name: Run Qwen Inference Test
+        env:
+          LLM_MODEL_DIR: ./test_qwen_dir
+        run: |
+          flutter pub get
+          flutter test test/llm_release_gate_test.dart
