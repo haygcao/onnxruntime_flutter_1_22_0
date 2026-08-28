@@ -1,20 +1,16 @@
-name: Release Gate - Dedicated LLM Verification (Hunyuan & Qwen)
+name: Post-Release - Auto LLM Verification (Hunyuan & Qwen)
 
+# 🚀 发布 Release 后全自动触发，零人工干预
 on:
   release:
     types: [published, created]
   workflow_dispatch:
-    inputs:
-      target_model:
-        description: 'Target LLM to test: all / hunyuan / qwen'
-        required: false
-        default: 'all'
 
 jobs:
-  verify-heavy-llms:
-    name: Dedicated LLM Verification Gate
+  test-hunyuan-llm:
+    name: 1. Verify Tencent Hunyuan-MT 1.8B (Isolated)
     runs-on: windows-latest
-    timeout-minutes: 45
+    timeout-minutes: 30
 
     steps:
       - name: Checkout repository
@@ -29,31 +25,51 @@ jobs:
           channel: 'stable'
           cache: true
 
-      - name: Download Dedicated LLM Models (Hunyuan-MT & Qwen)
+      - name: Download Tencent Hunyuan-MT Model
         shell: bash
         run: |
-          mkdir -p llm_models
-          TARGET="${{ github.event.inputs.target_model || 'all' }}"
-          
-          if [ "$TARGET" = "all" ] || [ "$TARGET" = "hunyuan" ]; then
-            echo "📥 Downloading Tencent Hunyuan-MT 1.8B (FP16+INT4 / IR 10+)..."
-            curl -L -C - --retry 5 -o llm_models/hunyuan_model_q4f16.onnx \
-              "https://huggingface.co/Tencent/Hunyuan-MT/resolve/main/onnx/model_q4f16.onnx"
-          fi
-          
-          if [ "$TARGET" = "all" ] || [ "$TARGET" = "qwen" ]; then
-            echo "📥 Downloading Alibaba Qwen 3.5 0.8B (KV-Cache / GQA)..."
-            curl -L -C - --retry 5 -o llm_models/qwen_decoder_merged_q4.onnx \
-              "https://huggingface.co/Qwen/Qwen3.5-0.8B/resolve/main/onnx/decoder_model_merged_q4.onnx"
-          fi
+          mkdir -p test_hunyuan_dir
+          echo "📥 Downloading Tencent Hunyuan-MT 1.8B..."
+          curl -L -C - --retry 5 -o test_hunyuan_dir/hunyuan_model_q4f16.onnx \
+            "https://huggingface.co/Tencent/Hunyuan-MT/resolve/main/onnx/model_q4f16.onnx"
 
-      - name: Run Dedicated LLM Release Gate Test
+      - name: Run Hunyuan Inference Test
         env:
-          LLM_MODEL_DIR: ./llm_models
+          LLM_MODEL_DIR: ./test_hunyuan_dir
         run: |
           flutter pub get
           flutter test test/llm_release_gate_test.dart
 
-      - name: LLM Gate Success Summary
+  test-qwen-llm:
+    name: 2. Verify Alibaba Qwen 3.5 0.8B (Isolated)
+    needs: test-hunyuan-llm
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: auto-sync
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.44.x'
+          channel: 'stable'
+          cache: true
+
+      - name: Download Alibaba Qwen 3.5 Model
+        shell: bash
         run: |
-          echo "🎉 All Heavy LLM models (Hunyuan-MT & Qwen 3.5) successfully passed end-to-end forward inference verification!"
+          mkdir -p test_qwen_dir
+          echo "📥 Downloading Alibaba Qwen 3.5 0.8B..."
+          curl -L -C - --retry 5 -o test_qwen_dir/qwen_decoder_merged_q4.onnx \
+            "https://huggingface.co/Qwen/Qwen3.5-0.8B/resolve/main/onnx/decoder_model_merged_q4.onnx"
+
+      - name: Run Qwen Inference Test
+        env:
+          LLM_MODEL_DIR: ./test_qwen_dir
+        run: |
+          flutter pub get
+          flutter test test/llm_release_gate_test.dart
