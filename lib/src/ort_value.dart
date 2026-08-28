@@ -564,9 +564,14 @@ class OrtValueSequence extends OrtValue {
     final firstElementPtrPtr = calloc<ffi.Pointer<bg.OrtValue>>();
     final firstElementPtr = _getOrtValue(_ptr, 0, firstElementPtrPtr);
     final onnxTypePtr = calloc<ffi.Int32>();
-    statusPtr = OrtEnv.instance.ortApiPtr.ref.GetValueType.asFunction<
-        bg.OrtStatusPtr Function(ffi.Pointer<bg.OrtValue>,
-            ffi.Pointer<ffi.Int32>)>()(firstElementPtr, onnxTypePtr);
+    statusPtr = OrtEnv.instance.ortApiPtr.ref.GetValueType
+        .cast<
+            ffi.NativeFunction<
+                bg.OrtStatusPtr Function(ffi.Pointer<bg.OrtValue>,
+                    ffi.Pointer<ffi.Int32>)>>()
+        .asFunction<
+            bg.OrtStatusPtr Function(ffi.Pointer<bg.OrtValue>,
+                ffi.Pointer<ffi.Int32>)>(isLeaf: true)(firstElementPtr, onnxTypePtr);
     OrtStatus.checkOrtStatus(statusPtr);
     _onnxType = ONNXType.valueOf(onnxTypePtr.value);
     if (_onnxType == ONNXType.tensor) {
@@ -703,9 +708,13 @@ class OrtValueSparseTensor extends OrtValue {
     _info = OrtTensorTypeAndShapeInfo(ptr);
     final ortSparseFormatPtr = calloc<ffi.Int32>();
     final statusPtr = OrtEnv.instance.ortApiPtr.ref.GetSparseTensorFormat
+        .cast<
+            ffi.NativeFunction<
+                bg.OrtStatusPtr Function(ffi.Pointer<bg.OrtValue>,
+                    ffi.Pointer<ffi.Int32>)>>()
         .asFunction<
             bg.OrtStatusPtr Function(ffi.Pointer<bg.OrtValue>,
-                ffi.Pointer<ffi.Int32>)>()(ptr, ortSparseFormatPtr);
+                ffi.Pointer<ffi.Int32>)>(isLeaf: true)(ptr, ortSparseFormatPtr);
     OrtStatus.checkOrtStatus(statusPtr);
     _ortSparseFormat = OrtSparseFormat.valueOf(ortSparseFormatPtr.value);
     calloc.free(ortSparseFormatPtr);
@@ -763,11 +772,18 @@ class OrtTensorTypeAndShapeInfo {
       ffi.Pointer<bg.OrtTensorTypeAndShapeInfo> infoPtr) {
     final onnxTensorElementDataTypePtr = calloc<ffi.Int32>();
     final statusPtr = OrtEnv.instance.ortApiPtr.ref.GetTensorElementType
-            .asFunction<
+        .cast<
+            ffi.NativeFunction<
                 bg.OrtStatusPtr Function(
                     ffi.Pointer<bg.OrtTensorTypeAndShapeInfo>,
-                    ffi.Pointer<ffi.Int32>)>()(
-        infoPtr, onnxTensorElementDataTypePtr);
+                    ffi.Pointer<ffi.Int32>)>>()
+        .asFunction<
+            bg.OrtStatusPtr Function(
+                ffi.Pointer<bg.OrtTensorTypeAndShapeInfo>,
+                ffi.Pointer<ffi.Int32>)>(isLeaf: true)(
+      infoPtr,
+      onnxTensorElementDataTypePtr,
+    );
     OrtStatus.checkOrtStatus(statusPtr);
     final onnxTensorElementDataType = onnxTensorElementDataTypePtr.value;
     calloc.free(onnxTensorElementDataTypePtr);

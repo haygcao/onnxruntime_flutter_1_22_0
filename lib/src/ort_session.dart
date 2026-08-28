@@ -43,13 +43,25 @@ class OrtSession {
     } else {
       pathPtr = modelFile.path.toNativeUtf8().cast<ffi.Char>();
     }
-    final statusPtr = OrtEnv.instance.ortApiPtr.ref.CreateSession.asFunction<
+    final statusPtr = OrtEnv.instance.ortApiPtr.ref.CreateSession
+        .cast<
+            ffi.NativeFunction<
+                bg.OrtStatusPtr Function(
+                    ffi.Pointer<bg.OrtEnv>,
+                    ffi.Pointer<ffi.Char>,
+                    ffi.Pointer<bg.OrtSessionOptions>,
+                    ffi.Pointer<ffi.Pointer<bg.OrtSession>>)>>()
+        .asFunction<
             bg.OrtStatusPtr Function(
                 ffi.Pointer<bg.OrtEnv>,
                 ffi.Pointer<ffi.Char>,
                 ffi.Pointer<bg.OrtSessionOptions>,
-                ffi.Pointer<ffi.Pointer<bg.OrtSession>>)>()(OrtEnv.instance.ptr,
-        pathPtr, options._ptr, pp);
+                ffi.Pointer<ffi.Pointer<bg.OrtSession>>)>(isLeaf: true)(
+      OrtEnv.instance.ptr,
+      pathPtr,
+      options._ptr,
+      pp,
+    );
     OrtStatus.checkOrtStatus(statusPtr);
     _ptr = pp.value;
     calloc.free(pp);
@@ -208,9 +220,14 @@ class OrtSession {
     final outputs = List<OrtValue?>.generate(outputLength, (index) {
       final ortValuePtr = outputPtrs[index];
       final onnxTypePtr = calloc<ffi.Int32>();
-      statusPtr = OrtEnv.instance.ortApiPtr.ref.GetValueType.asFunction<
-          bg.OrtStatusPtr Function(ffi.Pointer<bg.OrtValue>,
-              ffi.Pointer<ffi.Int32>)>()(ortValuePtr, onnxTypePtr);
+      statusPtr = OrtEnv.instance.ortApiPtr.ref.GetValueType
+          .cast<
+              ffi.NativeFunction<
+                  bg.OrtStatusPtr Function(ffi.Pointer<bg.OrtValue>,
+                      ffi.Pointer<ffi.Int32>)>>()
+          .asFunction<
+              bg.OrtStatusPtr Function(ffi.Pointer<bg.OrtValue>,
+                  ffi.Pointer<ffi.Int32>)>(isLeaf: true)(ortValuePtr, onnxTypePtr);
       OrtStatus.checkOrtStatus(statusPtr);
       final onnxType = ONNXType.valueOf(onnxTypePtr.value);
       calloc.free(onnxTypePtr);
