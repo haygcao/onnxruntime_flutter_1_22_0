@@ -15,6 +15,12 @@ import tarfile
 import urllib.request
 from pathlib import Path
 
+# 强制 stdout / stderr 使用 UTF-8 编码，防止 Windows 终端 cp1252 编码异常
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 GITHUB_API_URL = "https://api.github.com/repos/microsoft/onnxruntime/releases/latest"
 GITHUB_TAG_API_URL = "https://api.github.com/repos/microsoft/onnxruntime/releases/tags/{tag}"
 
@@ -27,7 +33,7 @@ ANDROID_DIR = ROOT_DIR / "android"
 SRC_ORT_DIR = ROOT_DIR / "src" / "onnxruntime"
 HEADER_PATH = SRC_ORT_DIR / "onnxruntime_c_api.h"
 
-# 🚀 顺序测试的轻量真实基准模型（体积小、算子全、按序单个测试）
+# CI 专属轻量真实基准模型（体积小、算子全、按序单个测试）
 BENCHMARK_MODELS = [
     {
         "id": "paddleocr_v5_det",
@@ -63,12 +69,12 @@ BENCHMARK_MODELS = [
 def fetch_release_info(target_tag=None):
     url = GITHUB_TAG_API_URL.format(tag=target_tag) if target_tag else GITHUB_API_URL
     req = urllib.request.Request(url, headers={"User-Agent": "AutoSync-Pipeline"})
-    print(f"🔍 Fetching release metadata from: {url}")
+    print(f"[INFO] Fetching release metadata from: {url}")
     with urllib.request.urlopen(req) as resp:
         data = json.loads(resp.read().decode("utf-8"))
     tag = data["tag_name"]
     clean_ver = tag.lstrip("v")
-    print(f"🎯 Discovered ONNX Runtime Release: {clean_ver} ({tag})")
+    print(f"[INFO] Discovered ONNX Runtime Release: {clean_ver} ({tag})")
     return clean_ver, tag, data
 
 
@@ -100,12 +106,12 @@ def inspect_api_changes(old_header_file: Path, new_header_content: str):
 
 
 def download_file(url: str, dest_path: Path):
-    print(f"📥 Downloading: {url}")
+    print(f"[DOWNLOAD] Downloading: {url}")
     dest_path.parent.mkdir(parents=True, exist_ok=True)
     req = urllib.request.Request(url, headers={"User-Agent": "AutoSync-Pipeline"})
     with urllib.request.urlopen(req) as resp, open(dest_path, "wb") as out:
         shutil.copyfileobj(resp, out)
-    print(f"✅ Saved to: {dest_path.name}")
+    print(f"[OK] Saved to: {dest_path.name}")
 
 
 def sync_all_platforms(version: str, release_data: dict, temp_dir: Path):
@@ -140,7 +146,7 @@ def sync_all_platforms(version: str, release_data: dict, temp_dir: Path):
 
                         with open(target_file, "wb") as f:
                             f.write(header_bytes)
-                        print(f"  📄 Extracted header: {filename}")
+                        print(f"  [EXTRACT] Header: {filename}")
 
                 # 同步 onnxruntime.dll
                 if member.endswith("lib/onnxruntime.dll") or member.endswith("onnxruntime.dll"):
@@ -219,18 +225,18 @@ def sync_all_platforms(version: str, release_data: dict, temp_dir: Path):
 
 def download_test_models_sequentially(target_dir: Path):
     """Downloads models one by one sequentially."""
-    print(f"\n🧠 Sequentially downloading test model suite to {target_dir}...")
+    print(f"\n[INFO] Sequentially downloading test model suite to {target_dir}...")
     target_dir.mkdir(parents=True, exist_ok=True)
     for m in BENCHMARK_MODELS:
         dest = target_dir / m["name"]
         if not dest.exists():
-            print(f"  ⬇️ [{m['engine']}] Downloading {m['name']} ({m['description']})...")
+            print(f"  [DOWNLOAD] [{m['engine']}] Downloading {m['name']} ({m['description']})...")
             try:
                 download_file(m["url"], dest)
             except Exception as e:
-                print(f"  ⚠️ Warning downloading {m['name']}: {e}")
+                print(f"  [WARN] Warning downloading {m['name']}: {e}")
         else:
-            print(f"  ✨ Cached: {m['name']}")
+            print(f"  [OK] Cached: {m['name']}")
 
 
 def main():
@@ -248,31 +254,31 @@ def main():
 
         summary_path = ROOT_DIR / "SYNC_SUMMARY.md"
         with open(summary_path, "w", encoding="utf-8") as f:
-            f.write(f"# 🤖 ONNX Runtime v{version} Auto-Sync & Verification Report\n\n")
+            f.write(f"# ONNX Runtime v{version} Auto-Sync & Verification Report\n\n")
             f.write(f"- **Release Tag**: `{tag}`\n")
             f.write(f"- **Platforms Updated**: {', '.join(report['platforms_updated'])}\n\n")
 
-            f.write(f"### 🧠 Verified CI Models ({len(BENCHMARK_MODELS)} Models Sequentially Tested):\n")
+            f.write(f"### Verified CI Models ({len(BENCHMARK_MODELS)} Models Sequentially Tested):\n")
             for m in BENCHMARK_MODELS:
-                f.write(f"- **`{m['name']}`** (`{m['id']}`) — *{m['description']}* (`{m['engine']}`)\n")
+                f.write(f"- **`{m['name']}`** (`{m['id']}`) - *{m['description']}* (`{m['engine']}`)\n")
             f.write("\n")
 
             if report["added_apis"]:
-                f.write("### 🌟 Newly Added C APIs in this version:\n")
+                f.write("### Newly Added C APIs in this version:\n")
                 for api in report["added_apis"]:
                     f.write(f"- `{api}`\n")
                 f.write("\n")
 
             if report["removed_apis"]:
-                f.write("### ⚠️ Deprecated / Removed APIs:\n")
+                f.write("### Deprecated / Removed APIs:\n")
                 for api in report["removed_apis"]:
                     f.write(f"- `{api}`\n")
                 f.write("\n")
 
             if not report["added_apis"] and not report["removed_apis"]:
-                f.write("✅ **ABI Signature 100% Identical** (Seamless Drop-in Replacement).\n")
+                f.write("**ABI Signature 100% Identical** (Seamless Drop-in Replacement).\n")
 
-        print(f"\n🎉 Sync completed! Summary written to {summary_path}")
+        print(f"\n[OK] Sync completed! Summary written to {summary_path}")
 
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
