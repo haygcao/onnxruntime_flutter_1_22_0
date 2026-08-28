@@ -17,6 +17,8 @@ headers:
     - 'src/onnxruntime/nnapi_provider_factory.h'
     - 'src/onnxruntime/onnxruntime_c_api.h'
 compiler-opts:
+  - '-w'
+  - '-Wno-macro-redefined'
   - '-U_WIN32'
   - '-U_WIN64'
   - '-U_MSC_VER'
