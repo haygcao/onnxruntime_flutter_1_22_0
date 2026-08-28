@@ -16,13 +16,14 @@ headers:
     - 'src/onnxruntime/cpu_provider_factory.h'
     - 'src/onnxruntime/nnapi_provider_factory.h'
     - 'src/onnxruntime/onnxruntime_c_api.h'
+type-map:
+  typedefs:
+    'ORTCHAR_T':
+      lib: 'pkg_ffi'
+      c-type: 'Char'
+      dart-type: 'int'
 compiler-opts:
   - '-w'
-  - '-Wno-macro-redefined'
-  - '-U_WIN32'
-  - '-U_WIN64'
-  - '-U_MSC_VER'
-  - '-D__linux__'
 enums:
   as-int:
     include:
