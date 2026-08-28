@@ -205,3 +205,12 @@ try {
 
 4. Check that you're using the GPU-enabled ONNX Runtime library
 
+## 🤖 Automated Upgrades (Auto-Sync Pipeline)
+
+This repository includes a fully automated GitHub Actions pipeline (`.github/workflows/auto_sync_onnxruntime.yml`):
+- **Weekly Auto-Check**: Queries Microsoft GitHub Releases for new ONNX Runtime versions.
+- **Auto-Download & FFI Generation**: Downloads latest Windows x64 binaries and regenerates Dart FFI bindings with `ffigen`.
+- **Real Model Verification**: Automatically downloads real-world models (PP-OCRv5, MangaLens, LLMs) and runs end-to-end inference tests.
+- **Auto Pull-Request**: Opens a tested PR when a new compatible version passes all checks.
+- **Manual Trigger / Script**: Run `scripts/auto_upgrade_onnxruntime.ps1` to locally sync to any version on-demand.
+
