@@ -13,7 +13,7 @@ void main() {
     OrtEnv.instance.release();
   });
 
-  group('👑 Release Gate: Dedicated LLM Verification', () {
+  group('👑 Release Gate: Dedicated LLM Verification (Hunyuan & Qwen)', () {
     final llmDirStr = Platform.environment['LLM_MODEL_DIR'] ?? './llm_models';
     final llmDir = Directory(llmDirStr);
 
@@ -62,37 +62,76 @@ void main() {
           expect(inputNames.isNotEmpty, isTrue);
           expect(outputNames.isNotEmpty, isTrue);
 
-          // 2. 严格按照 pyro_edge_ai 中的 hunyuan_provider 标准构造张量
           const inputLength = 4;
           final inputIds = [1, 150, 2034, 12];
-
-          final ortInputIds = OrtValueTensor.createTensorWithDataList(
-            Int64List.fromList(inputIds),
-            [1, inputLength],
-          );
-          allocatedTensors.add(ortInputIds);
-
-          final attentionMask = OrtValueTensor.createTensorWithDataList(
-            Int64List.fromList(List.filled(inputLength, 1)),
-            [1, inputLength],
-          );
-          allocatedTensors.add(attentionMask);
-
-          final positionIds = OrtValueTensor.createTensorWithDataList(
-            Int64List.fromList(List.generate(inputLength, (i) => i)),
-            [1, inputLength],
-          );
-          allocatedTensors.add(positionIds);
-
           final Map<String, OrtValue> inputs = {};
-          if (inputNames.contains('input_ids')) {
-            inputs['input_ids'] = ortInputIds;
-          }
-          if (inputNames.contains('attention_mask')) {
-            inputs['attention_mask'] = attentionMask;
-          }
-          if (inputNames.contains('position_ids')) {
-            inputs['position_ids'] = positionIds;
+
+          if (fileName.contains('qwen')) {
+            // ── 1:1 严格复用 pyro_edge_ai/lib/src/providers/qwen_provider.dart ──
+            if (inputNames.contains('input_ids')) {
+              final ortInputIds = OrtValueTensor.createTensorWithDataList(
+                Int64List.fromList(inputIds),
+                [1, inputLength],
+              );
+              allocatedTensors.add(ortInputIds);
+              inputs['input_ids'] = ortInputIds;
+            }
+
+            if (inputNames.contains('inputs_embeds')) {
+              final embeds = OrtValueTensor.createTensorWithDataList(
+                Float32List(1 * inputLength * 1024),
+                [1, inputLength, 1024],
+              );
+              allocatedTensors.add(embeds);
+              inputs['inputs_embeds'] = embeds;
+            }
+
+            if (inputNames.contains('attention_mask')) {
+              final attentionMask = OrtValueTensor.createTensorWithDataList(
+                Int64List.fromList(List.filled(inputLength, 1)),
+                [1, inputLength],
+              );
+              allocatedTensors.add(attentionMask);
+              inputs['attention_mask'] = attentionMask;
+            }
+
+            if (inputNames.contains('position_ids')) {
+              // Qwen MRoPE 格式: [3, 1, inputLength]
+              final positionIds = OrtValueTensor.createTensorWithDataList(
+                Int64List.fromList(List.generate(3 * inputLength, (i) => i % inputLength)),
+                [3, 1, inputLength],
+              );
+              allocatedTensors.add(positionIds);
+              inputs['position_ids'] = positionIds;
+            }
+          } else {
+            // ── 1:1 严格复用 pyro_edge_ai/lib/src/providers/hunyuan_provider.dart ──
+            if (inputNames.contains('input_ids')) {
+              final ortInputIds = OrtValueTensor.createTensorWithDataList(
+                Int64List.fromList(inputIds),
+                [1, inputLength],
+              );
+              allocatedTensors.add(ortInputIds);
+              inputs['input_ids'] = ortInputIds;
+            }
+
+            if (inputNames.contains('attention_mask')) {
+              final attentionMask = OrtValueTensor.createTensorWithDataList(
+                Int64List.fromList(List.filled(inputLength, 1)),
+                [1, inputLength],
+              );
+              allocatedTensors.add(attentionMask);
+              inputs['attention_mask'] = attentionMask;
+            }
+
+            if (inputNames.contains('position_ids')) {
+              final positionIds = OrtValueTensor.createTensorWithDataList(
+                Int64List.fromList(List.generate(inputLength, (i) => i)),
+                [1, inputLength],
+              );
+              allocatedTensors.add(positionIds);
+              inputs['position_ids'] = positionIds;
+            }
           }
 
           // 3. 执行前向推理
