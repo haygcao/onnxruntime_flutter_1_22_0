@@ -23,6 +23,7 @@ type-map:
       c-type: 'Char'
       dart-type: 'int'
 compiler-opts:
+  - '-Isrc/onnxruntime'
   - '-w'
 enums:
   as-int:
