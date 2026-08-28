@@ -64,17 +64,12 @@ jobs:
             echo "has_changes=false" >> $GITHUB_OUTPUT
           fi
 
-      - name: Regenerate Dart FFI Bindings
-        if: steps.check_git.outputs.has_changes == 'true'
-        run: |
-          flutter pub get
-          dart run ffigen --config ffigen_onnxruntime.yaml
-
       - name: Run Real Model Inference Test (Sequentially One-by-One)
         if: steps.check_git.outputs.has_changes == 'true'
         env:
           TEST_MODEL_DIR: ./test_models
         run: |
+          flutter pub get
           flutter test test/real_models_verification_test.dart
 
       - name: Publish Verified GitHub Release

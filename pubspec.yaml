@@ -4,7 +4,7 @@ version: 1.23.2+2
 homepage: https://github.com/Persie0/onnxruntime_flutter_1_22_0
 
 environment:
-  sdk: '>=3.0.0 <4.0.0'
+  sdk: '>=2.17.0 <4.0.0'
   flutter: '>=3.0.0'
 
 dependencies:
