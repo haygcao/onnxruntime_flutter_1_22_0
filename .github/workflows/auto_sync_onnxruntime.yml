@@ -1,4 +1,4 @@
-name: Auto-Sync ONNX Runtime & Full Model Verification Release
+name: Auto-Sync ONNX Runtime & Verified Release
 
 on:
   schedule:
@@ -15,13 +15,15 @@ permissions:
   contents: write
   pull-requests: write
 
+# 禁止并发，全局单任务串行执行，避免资源耗尽与超时
+concurrency:
+  group: onnxruntime-sync-pipeline
+  cancel-in-progress: false
+
 jobs:
-  sync-and-inspect:
-    name: Sync Binaries, Inspect APIs & Download Full Model Matrix
-    runs-on: ubuntu-latest
-    outputs:
-      ort_version: ${{ steps.run_sync.outputs.ort_version }}
-      has_changes: ${{ steps.check_git.outputs.has_changes }}
+  sync-verify-and-release:
+    name: Single Sequential Pipeline (Sync -> Test -> Release)
+    runs-on: windows-latest
 
     steps:
       - name: Checkout repository
@@ -34,45 +36,6 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Run Multi-Platform Sync & Full Model Download
-        id: run_sync
-        run: |
-          python scripts/sync_onnxruntime.py "${{ github.event.inputs.target_version }}"
-          VERSION=$(grep -m 1 "Release Tag" SYNC_SUMMARY.md | awk -F'`' '{print $2}' | sed 's/^v//')
-          echo "ort_version=$VERSION" >> $GITHUB_OUTPUT
-
-      - name: Check if files were modified
-        id: check_git
-        run: |
-          if [ -n "$(git status --porcelain)" ]; then
-            echo "has_changes=true" >> $GITHUB_OUTPUT
-          else
-            echo "has_changes=false" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Upload Synced Artifacts (Including Models)
-        if: steps.check_git.outputs.has_changes == 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: synced-repo-with-models
-          path: ./
-
-  matrix-verification:
-    name: Full Model Inference Test on ${{ matrix.os }}
-    needs: sync-and-inspect
-    if: needs.sync-and-inspect.outputs.has_changes == 'true'
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: true
-      matrix:
-        os: [windows-latest, macos-latest, ubuntu-latest]
-
-    steps:
-      - name: Download Synced Repo With Models
-        uses: actions/download-artifact@v4
-        with:
-          name: synced-repo-with-models
-
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
@@ -80,32 +43,43 @@ jobs:
           channel: 'stable'
           cache: true
 
+      - name: Run Multi-Platform Sync & Sequential Model Download
+        id: run_sync
+        shell: bash
+        run: |
+          python scripts/sync_onnxruntime.py "${{ github.event.inputs.target_version }}"
+          VERSION=$(grep -m 1 "Release Tag" SYNC_SUMMARY.md | awk -F'`' '{print $2}' | sed 's/^v//')
+          echo "ort_version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Check for Changes
+        id: check_git
+        shell: bash
+        run: |
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+          fi
+
       - name: Regenerate Dart FFI Bindings
+        if: steps.check_git.outputs.has_changes == 'true'
         run: |
           flutter pub get
           dart run ffigen --config ffigen_onnxruntime.yaml
 
-      - name: Run Full Model Verification (Hunyuan + Qwen + PP-OCR + MangaLens)
+      - name: Run Real Model Inference Test (Sequentially One-by-One)
+        if: steps.check_git.outputs.has_changes == 'true'
         env:
           TEST_MODEL_DIR: ./test_models
         run: |
           flutter test test/real_models_verification_test.dart
 
-  auto-publish-release:
-    name: Publish Verified Release
-    needs: [sync-and-inspect, matrix-verification]
-    runs-on: ubuntu-latest
-    steps:
-      - name: Download Synced Repo
-        uses: actions/download-artifact@v4
-        with:
-          name: synced-repo-with-models
-
-      - name: Publish GitHub Release
+      - name: Publish Verified GitHub Release
+        if: steps.check_git.outputs.has_changes == 'true'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: "v${{ needs.sync-and-inspect.outputs.ort_version }}"
-          name: "🚀 ONNX Runtime v${{ needs.sync-and-inspect.outputs.ort_version }} (Full LLM Matrix Verified)"
+          tag_name: "v${{ steps.run_sync.outputs.ort_version }}"
+          name: "🚀 ONNX Runtime v${{ steps.run_sync.outputs.ort_version }} (Verified Release)"
           body_path: SYNC_SUMMARY.md
           draft: false
           prerelease: false

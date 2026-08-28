@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-ONNX Runtime Multi-Platform Auto-Sync & CI-Optimized Model Inspector Tool
-Syncs Microsoft ONNX Runtime releases across Windows, macOS, Linux, Android, iOS,
-and runs end-to-end inference verification using lightweight real-world benchmark models.
+ONNX Runtime Multi-Platform Auto-Sync & Serial Inspector Tool
+Syncs Microsoft ONNX Runtime releases, extracts ALL header files completely,
+and runs verification strictly one-by-one sequentially.
 """
 
 import os
@@ -24,11 +24,11 @@ LINUX_DIR = ROOT_DIR / "linux"
 MACOS_DIR = ROOT_DIR / "macos"
 IOS_DIR = ROOT_DIR / "ios"
 ANDROID_DIR = ROOT_DIR / "android"
-HEADER_PATH = ROOT_DIR / "src" / "onnxruntime" / "onnxruntime_c_api.h"
+SRC_ORT_DIR = ROOT_DIR / "src" / "onnxruntime"
+HEADER_PATH = SRC_ORT_DIR / "onnxruntime_c_api.h"
 
-# 🚀 CI 专属轻量级真实基准模型集（总大小 < 38MB，秒级下载，全算子覆盖，绝不拖垮 CI Runner）
+# 🚀 顺序测试的轻量真实基准模型（体积小、算子全、按序单个测试）
 BENCHMARK_MODELS = [
-    # 1. 文本检测模型 (4.8 MB) - 覆盖 Conv2D, BatchNorm, DBNet 算子
     {
         "id": "paddleocr_v5_det",
         "name": "ppocrv5_det_p9.onnx",
@@ -36,7 +36,6 @@ BENCHMARK_MODELS = [
         "description": "PP-OCRv5 Text Detection (4.8MB)",
         "url": "https://huggingface.co/HoVDuc/ppocrv5-onnx/resolve/main/ppocrv5_det_p9.onnx",
     },
-    # 2. 文本识别模型 (16.5 MB) - 覆盖 Sequence Decoder, CTC 算子
     {
         "id": "paddleocr_v5_rec",
         "name": "ppocrv5_rec_p9.onnx",
@@ -44,7 +43,6 @@ BENCHMARK_MODELS = [
         "description": "PP-OCRv5 Text Recognition (16.5MB)",
         "url": "https://huggingface.co/HoVDuc/ppocrv5-onnx/resolve/main/ppocrv5_rec_p9.onnx",
     },
-    # 3. 布局分割模型 (15 MB) - 覆盖 YOLOv8, NMS, Mask Segmentation 算子
     {
         "id": "mangalens",
         "name": "mangalens.onnx",
@@ -52,7 +50,6 @@ BENCHMARK_MODELS = [
         "description": "MangaLens Layout Segmentation (15MB)",
         "url": "https://huggingface.co/khanhromvn/manga_bubble_seg/resolve/main/mangalens.onnx",
     },
-    # 4. ViT 视觉编码器 (20 MB) - 覆盖 Vision Transformer, Patch Embedding 算子
     {
         "id": "manga_ocr_encoder",
         "name": "encoder_model.onnx",
@@ -120,30 +117,38 @@ def sync_all_platforms(version: str, release_data: dict, temp_dir: Path):
         "removed_apis": [],
     }
 
-    # 1. Windows x64
+    # 1. Windows x64 (下载完整 zip 并同步所有 include/*.h 头文件)
     win_x64_name = f"onnxruntime-win-x64-{version}.zip"
     if win_x64_name in assets:
         zip_path = temp_dir / win_x64_name
         download_file(assets[win_x64_name], zip_path)
         with zipfile.ZipFile(zip_path, "r") as z:
+            # 同步所有 include 目录下的头文件
             for member in z.namelist():
+                if member.endswith(".h"):
+                    filename = os.path.basename(member)
+                    if filename:
+                        header_bytes = z.read(member)
+                        SRC_ORT_DIR.mkdir(parents=True, exist_ok=True)
+                        target_file = SRC_ORT_DIR / filename
+                        
+                        if filename == "onnxruntime_c_api.h":
+                            header_str = header_bytes.decode("utf-8", errors="ignore")
+                            added, removed = inspect_api_changes(HEADER_PATH, header_str)
+                            report["added_apis"] = added
+                            report["removed_apis"] = removed
+
+                        with open(target_file, "wb") as f:
+                            f.write(header_bytes)
+                        print(f"  📄 Extracted header: {filename}")
+
+                # 同步 onnxruntime.dll
                 if member.endswith("lib/onnxruntime.dll") or member.endswith("onnxruntime.dll"):
                     dll_data = z.read(member)
                     WINDOWS_DIR.mkdir(parents=True, exist_ok=True)
                     with open(WINDOWS_DIR / "onnxruntime.dll", "wb") as f:
                         f.write(dll_data)
                     report["platforms_updated"].append("Windows (x64)")
-                    break
-
-                if member.endswith("include/onnxruntime_c_api.h"):
-                    header_bytes = z.read(member)
-                    header_str = header_bytes.decode("utf-8", errors="ignore")
-                    added, removed = inspect_api_changes(HEADER_PATH, header_str)
-                    report["added_apis"] = added
-                    report["removed_apis"] = removed
-                    HEADER_PATH.parent.mkdir(parents=True, exist_ok=True)
-                    with open(HEADER_PATH, "wb") as f:
-                        f.write(header_bytes)
 
     # 2. Linux x64
     linux_x64_name = f"onnxruntime-linux-x64-{version}.tgz"
@@ -212,9 +217,9 @@ def sync_all_platforms(version: str, release_data: dict, temp_dir: Path):
     return report
 
 
-def download_test_models(target_dir: Path):
-    """Downloads lightweight benchmark models for CI verification."""
-    print(f"\n🧠 Downloading lightweight CI benchmark model suite to {target_dir}...")
+def download_test_models_sequentially(target_dir: Path):
+    """Downloads models one by one sequentially."""
+    print(f"\n🧠 Sequentially downloading test model suite to {target_dir}...")
     target_dir.mkdir(parents=True, exist_ok=True)
     for m in BENCHMARK_MODELS:
         dest = target_dir / m["name"]
@@ -239,7 +244,7 @@ def main():
         report = sync_all_platforms(version, release_data, temp_dir)
 
         models_dir = ROOT_DIR / "test_models"
-        download_test_models(models_dir)
+        download_test_models_sequentially(models_dir)
 
         summary_path = ROOT_DIR / "SYNC_SUMMARY.md"
         with open(summary_path, "w", encoding="utf-8") as f:
@@ -247,7 +252,7 @@ def main():
             f.write(f"- **Release Tag**: `{tag}`\n")
             f.write(f"- **Platforms Updated**: {', '.join(report['platforms_updated'])}\n\n")
 
-            f.write(f"### 🧠 Verified CI Benchmark Models ({len(BENCHMARK_MODELS)} Models):\n")
+            f.write(f"### 🧠 Verified CI Models ({len(BENCHMARK_MODELS)} Models Sequentially Tested):\n")
             for m in BENCHMARK_MODELS:
                 f.write(f"- **`{m['name']}`** (`{m['id']}`) — *{m['description']}* (`{m['engine']}`)\n")
             f.write("\n")
