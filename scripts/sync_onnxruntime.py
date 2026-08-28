@@ -2,7 +2,7 @@
 """
 ONNX Runtime Multi-Platform Auto-Sync & Full Model Matrix Inspector Tool
 Syncs Microsoft ONNX Runtime releases across Windows, macOS, Linux, Android, iOS,
-and runs end-to-end inference verification across the entire LLM + Vision model matrix.
+and runs end-to-end inference verification strictly against pyro_edge_ai_orchestrator ModelRegistry.
 """
 
 import os
@@ -26,37 +26,68 @@ IOS_DIR = ROOT_DIR / "ios"
 ANDROID_DIR = ROOT_DIR / "android"
 HEADER_PATH = ROOT_DIR / "src" / "onnxruntime" / "onnxruntime_c_api.h"
 
-# 🚀 涵盖全业务场景的真实 AI 模型矩阵（LLM 大模型 + 多模态 + OCR + 目标检测）
+# 🎯 100% 对齐 pyro_edge_ai_orchestrator / ModelRegistry 的 8 个核心模型定义
 BENCHMARK_MODELS = [
+    # 1. 布局检测 (mangalens)
     {
-        "name": "hunyuan_model_q4f16.onnx",
-        "type": "LLM (IR 10+ / FP16+INT4 Hybrid)",
-        "url": "https://huggingface.co/Tencent/Hunyuan-MT/resolve/main/onnx/model_q4f16.onnx",
-    },
-    {
-        "name": "qwen_decoder_merged_q4.onnx",
-        "type": "LLM (Qwen 3.5 / KV Cache / GQA)",
-        "url": "https://huggingface.co/Qwen/Qwen3.5-0.8B/resolve/main/onnx/decoder_model_merged_q4.onnx",
-    },
-    {
-        "name": "ppocrv5_det_p9.onnx",
-        "type": "Vision (PP-OCRv5 Text Detection)",
-        "url": "https://huggingface.co/HoVDuc/ppocrv5-onnx/resolve/main/ppocrv5_det_p9.onnx",
-    },
-    {
-        "name": "ppocrv5_rec_p9.onnx",
-        "type": "Vision (PP-OCRv5 Text Recognition)",
-        "url": "https://huggingface.co/HoVDuc/ppocrv5-onnx/resolve/main/ppocrv5_rec_p9.onnx",
-    },
-    {
+        "id": "mangalens",
         "name": "mangalens.onnx",
-        "type": "Vision (Bubble Segmentation / YOLO)",
+        "engine": "detect_engine",
+        "description": "漫画页面布局分析 (MangaLens)",
         "url": "https://huggingface.co/khanhromvn/manga_bubble_seg/resolve/main/mangalens.onnx",
     },
     {
-        "name": "manga_ocr_encoder.onnx",
-        "type": "Vision Transformer (ViT Encoder)",
+        "id": "mangalens_yolo",
+        "name": "ysgyolo_1.2_OS1.0.onnx",
+        "engine": "detect_engine",
+        "description": "YOLOv8m-seg 气泡检测",
+        "url": "https://huggingface.co/khanhromvn/manga_bubble_seg/resolve/main/ysgyolo_1.2_OS1.0.onnx",
+    },
+    # 2. PaddleOCR v5 (paddleocr_v5)
+    {
+        "id": "paddleocr_v5_det",
+        "name": "ppocrv5_det_p9.onnx",
+        "engine": "ocr_paddle",
+        "description": "PP-OCRv5 文本检测",
+        "url": "https://huggingface.co/HoVDuc/ppocrv5-onnx/resolve/main/ppocrv5_det_p9.onnx",
+    },
+    {
+        "id": "paddleocr_v5_rec",
+        "name": "ppocrv5_rec_p9.onnx",
+        "engine": "ocr_paddle",
+        "description": "PP-OCRv5 文本识别",
+        "url": "https://huggingface.co/HoVDuc/ppocrv5-onnx/resolve/main/ppocrv5_rec_p9.onnx",
+    },
+    # 3. Manga OCR 2025 (manga_ocr_2025)
+    {
+        "id": "manga_ocr_encoder",
+        "name": "encoder_model.onnx",
+        "engine": "ocr_manga",
+        "description": "Manga-OCR ViT 编码器",
         "url": "https://huggingface.co/l0wgear/manga-ocr-2025-onnx/resolve/main/encoder_model.onnx",
+    },
+    {
+        "id": "manga_ocr_decoder",
+        "name": "decoder_model.onnx",
+        "engine": "ocr_manga",
+        "description": "Manga-OCR 序列解码器",
+        "url": "https://huggingface.co/l0wgear/manga-ocr-2025-onnx/resolve/main/decoder_model.onnx",
+    },
+    # 4. Qwen 3.5 0.8B (qwen_0_8b)
+    {
+        "id": "qwen_0_8b",
+        "name": "decoder_model_merged_q4.onnx",
+        "engine": "translate_qwen",
+        "description": "Qwen 3.5 0.8B 4-bit 量化通用多语言 LLM (KV Cache / GQA)",
+        "url": "https://huggingface.co/Qwen/Qwen3.5-0.8B/resolve/main/onnx/decoder_model_merged_q4.onnx",
+    },
+    # 5. Hunyuan MT 1.8B (hunyuan_mt_1_8b)
+    {
+        "id": "hunyuan_mt_1_8b",
+        "name": "model_q4f16.onnx",
+        "engine": "translate_hunyuan",
+        "description": "Hunyuan MT 1.8B 中日韩机器翻译 LLM (IR 10+ / FP16+INT4)",
+        "url": "https://huggingface.co/Tencent/Hunyuan-MT/resolve/main/onnx/model_q4f16.onnx",
     },
 ]
 
@@ -211,13 +242,13 @@ def sync_all_platforms(version: str, release_data: dict, temp_dir: Path):
 
 
 def download_test_models(target_dir: Path):
-    """Downloads all models in BENCHMARK_MODELS for verification."""
-    print(f"\n🧠 Downloading full model test suite to {target_dir}...")
+    """Downloads all 8 models from ModelRegistry for end-to-end verification."""
+    print(f"\n🧠 Downloading full model test suite ({len(BENCHMARK_MODELS)} models) to {target_dir}...")
     target_dir.mkdir(parents=True, exist_ok=True)
     for m in BENCHMARK_MODELS:
         dest = target_dir / m["name"]
         if not dest.exists():
-            print(f"  ⬇️ [{m['type']}] Downloading {m['name']}...")
+            print(f"  ⬇️ [{m['engine']}] Downloading {m['name']} ({m['description']})...")
             try:
                 download_file(m["url"], dest)
             except Exception as e:
@@ -247,9 +278,9 @@ def main():
             f.write(f"- **Release Tag**: `{tag}`\n")
             f.write(f"- **Platforms Updated**: {', '.join(report['platforms_updated'])}\n\n")
 
-            f.write("### 🧠 Verified AI Model Matrix:\n")
+            f.write(f"### 🧠 Verified AI Model Matrix ({len(BENCHMARK_MODELS)} Models):\n")
             for m in BENCHMARK_MODELS:
-                f.write(f"- **{m['name']}** — *{m['type']}*\n")
+                f.write(f"- **`{m['name']}`** (`{m['id']}`) — *{m['description']}* (`{m['engine']}`)\n")
             f.write("\n")
 
             if report["added_apis"]:
