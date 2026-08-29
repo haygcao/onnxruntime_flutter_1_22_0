@@ -19,10 +19,25 @@ class OrtEnv {
   static OrtApiVersion _apiVersion = OrtApiVersion.api20;
 
   OrtEnv._() {
-    _ortApiPtr = onnxRuntimeBinding.OrtGetApiBase()
+    final getApiFn = onnxRuntimeBinding.OrtGetApiBase()
         .ref
         .GetApi
-        .asFunction<ffi.Pointer<bg.OrtApi> Function(int)>()(_apiVersion.value);
+        .asFunction<ffi.Pointer<bg.OrtApi> Function(int)>();
+
+    ffi.Pointer<bg.OrtApi> apiPtr = getApiFn(_apiVersion.value);
+    if (apiPtr.address == 0) {
+      // 若指定的版本超出当前动态库支持范围，自动自适应降级至当前动态库支持的最大可用版本
+      for (int v = _apiVersion.value - 1; v >= 1; v--) {
+        apiPtr = getApiFn(v);
+        if (apiPtr.address != 0) {
+          break;
+        }
+      }
+    }
+    if (apiPtr.address == 0) {
+      throw StateError('Failed to initialize OrtApi: No supported API version found in the loaded ONNX Runtime library.');
+    }
+    _ortApiPtr = apiPtr;
   }
 
   /// Set ort's api version.
