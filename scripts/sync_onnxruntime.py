@@ -170,11 +170,13 @@ def sync_all_platforms(version: str, release_data: dict, temp_dir: Path):
                             f.write(header_bytes)
                         print(f"  [EXTRACT] Header: {filename}")
 
-                # 同步 onnxruntime.dll
+                # 同步 onnxruntime.dll 到 windows/ 和 根目录（供测试直接加载）
                 if member.endswith("lib/onnxruntime.dll") or member.endswith("onnxruntime.dll"):
                     dll_data = z.read(member)
                     WINDOWS_DIR.mkdir(parents=True, exist_ok=True)
                     with open(WINDOWS_DIR / "onnxruntime.dll", "wb") as f:
+                        f.write(dll_data)
+                    with open(ROOT_DIR / "onnxruntime.dll", "wb") as f:
                         f.write(dll_data)
                     report["platforms_updated"].append("Windows (x64)")
 

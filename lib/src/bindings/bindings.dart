@@ -17,6 +17,10 @@ final DynamicLibrary _dylib = () {
 
   if (Platform.isWindows) {
     try {
+      final winFile = File('windows/onnxruntime.dll');
+      if (winFile.existsSync()) {
+        return DynamicLibrary.open(winFile.absolute.path);
+      }
       final localFile = File('onnxruntime.dll');
       if (localFile.existsSync()) {
         return DynamicLibrary.open(localFile.absolute.path);
