@@ -28,13 +28,17 @@ jobs:
           channel: 'stable'
           cache: true
 
-      - name: Download Tencent Hunyuan-MT Model (onnx-community/HY-MT1.5-1.8B-ONNX)
+      - name: Download Tencent Hunyuan-MT Model and External Data
         shell: bash
         run: |
           mkdir -p test_hunyuan_dir
-          echo "📥 Downloading Tencent Hunyuan-MT 1.8B from onnx-community/HY-MT1.5-1.8B-ONNX..."
+          echo "📥 Downloading Tencent Hunyuan-MT 1.8B Graph (0.4MB)..."
           curl -L -C - --retry 5 -o test_hunyuan_dir/model_q4f16.onnx \
             "https://huggingface.co/onnx-community/HY-MT1.5-1.8B-ONNX/resolve/main/onnx/model_q4f16.onnx"
+          
+          echo "📥 Downloading Tencent Hunyuan-MT 1.8B Weights Data (1.2GB)..."
+          curl -L -C - --retry 5 -o test_hunyuan_dir/model_q4f16.onnx_data \
+            "https://huggingface.co/onnx-community/HY-MT1.5-1.8B-ONNX/resolve/main/onnx/model_q4f16.onnx_data"
 
       - name: Run Hunyuan Inference Test
         env:
