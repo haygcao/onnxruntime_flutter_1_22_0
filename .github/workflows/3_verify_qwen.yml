@@ -25,13 +25,13 @@ jobs:
           channel: 'stable'
           cache: true
 
-      - name: Download Alibaba Qwen 3.5 Model
+      - name: Download Alibaba Qwen 3.5 Model (onnx-community/Qwen3.5-0.8B-ONNX)
         shell: bash
         run: |
           mkdir -p test_qwen_dir
-          echo "📥 Downloading Alibaba Qwen 3.5 0.8B..."
-          curl -L -C - --retry 5 -o test_qwen_dir/qwen_decoder_merged_q4.onnx \
-            "https://huggingface.co/Qwen/Qwen3.5-0.8B/resolve/main/onnx/decoder_model_merged_q4.onnx"
+          echo "📥 Downloading Alibaba Qwen 3.5 0.8B from onnx-community/Qwen3.5-0.8B-ONNX..."
+          curl -L -C - --retry 5 -o test_qwen_dir/decoder_model_merged_q4.onnx \
+            "https://huggingface.co/onnx-community/Qwen3.5-0.8B-ONNX/resolve/main/onnx/decoder_model_merged_q4.onnx"
 
       - name: Run Qwen Inference Test
         env:
