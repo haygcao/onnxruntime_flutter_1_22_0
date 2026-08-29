@@ -239,6 +239,46 @@ def download_test_models_sequentially(target_dir: Path):
             print(f"  [OK] Cached: {m['name']}")
 
 
+def sync_api_version_to_dart():
+    header_path = ROOT_DIR / "src" / "onnxruntime" / "onnxruntime_c_api.h"
+    env_dart_path = ROOT_DIR / "lib" / "src" / "ort_env.dart"
+
+    if not header_path.exists() or not env_dart_path.exists():
+        return
+
+    with open(header_path, "r", encoding="utf-8", errors="ignore") as f:
+        content = f.read()
+
+    match = re.search(r"#define\s+ORT_API_VERSION\s+(\d+)", content)
+    if not match:
+        return
+
+    api_ver = int(match.group(1))
+    print(f"[INFO] Detected ORT_API_VERSION = {api_ver} from official header")
+
+    with open(env_dart_path, "r", encoding="utf-8") as f:
+        dart_code = f.read()
+
+    # 确保对应枚举存在
+    enum_member = f"api{api_ver}({api_ver}),"
+    if enum_member not in dart_code:
+        dart_code = dart_code.replace(
+            "  trainingApi1(1);",
+            f"  /// Auto-synced API version from header.\n  api{api_ver}({api_ver}),\n\n  trainingApi1(1);",
+        )
+
+    # 同步修改默认 _apiVersion
+    dart_code = re.sub(
+        r"static OrtApiVersion _apiVersion = OrtApiVersion\.api\d+;",
+        f"static OrtApiVersion _apiVersion = OrtApiVersion.api{api_ver};",
+        dart_code,
+    )
+
+    with open(env_dart_path, "w", encoding="utf-8") as f:
+        f.write(dart_code)
+    print(f"[OK] Synchronized OrtEnv._apiVersion to OrtApiVersion.api{api_ver} in ort_env.dart")
+
+
 def main():
     target_tag = sys.argv[1] if len(sys.argv) > 1 and sys.argv[1].strip() else None
     version, tag, release_data = fetch_release_info(target_tag)
@@ -248,6 +288,7 @@ def main():
 
     try:
         report = sync_all_platforms(version, release_data, temp_dir)
+        sync_api_version_to_dart()
 
         models_dir = ROOT_DIR / "test_models"
         download_test_models_sequentially(models_dir)

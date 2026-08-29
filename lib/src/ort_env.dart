@@ -16,7 +16,7 @@ class OrtEnv {
 
   late ffi.Pointer<bg.OrtApi> _ortApiPtr;
 
-  static OrtApiVersion _apiVersion = OrtApiVersion.api14;
+  static OrtApiVersion _apiVersion = OrtApiVersion.api20;
 
   OrtEnv._() {
     _ortApiPtr = onnxRuntimeBinding.OrtGetApiBase()
@@ -143,6 +143,39 @@ enum OrtApiVersion {
 
   /// Post 1.13 builds of the ORT API.
   api14(14),
+
+  /// Post 1.14 builds of the ORT API.
+  api15(15),
+
+  /// Post 1.15 builds of the ORT API.
+  api16(16),
+
+  /// Post 1.16 builds of the ORT API (supports IR 10).
+  api17(17),
+
+  /// Post 1.17 builds of the ORT API.
+  api18(18),
+
+  /// Post 1.18 builds of the ORT API.
+  api19(19),
+
+  /// Post 1.19 / 1.20+ builds of the ORT API.
+  api20(20),
+
+  /// Post 1.21+ builds of the ORT API.
+  api21(21),
+
+  /// Post 1.22+ builds of the ORT API.
+  api22(22),
+
+  /// Post 1.23+ builds of the ORT API.
+  api23(23),
+
+  /// Post 1.24+ builds of the ORT API.
+  api24(24),
+
+  /// Post 1.25+ builds of the ORT API.
+  api25(25),
 
   /// The initial release of the ORT training API.
   trainingApi1(1);
