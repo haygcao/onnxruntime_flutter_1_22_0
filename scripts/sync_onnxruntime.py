@@ -67,14 +67,36 @@ BENCHMARK_MODELS = [
 
 
 def fetch_release_info(target_tag=None):
-    url = GITHUB_TAG_API_URL.format(tag=target_tag) if target_tag else GITHUB_API_URL
-    req = urllib.request.Request(url, headers={"User-Agent": "AutoSync-Pipeline"})
-    print(f"[INFO] Fetching release metadata from: {url}")
+    if target_tag:
+        url = GITHUB_TAG_API_URL.format(tag=target_tag)
+        req = urllib.request.Request(url, headers={"User-Agent": "AutoSync-Pipeline"})
+        print(f"[INFO] Fetching specified release metadata from: {url}")
+        with urllib.request.urlopen(req) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        tag = data["tag_name"]
+        clean_ver = tag.lstrip("v")
+        print(f"[INFO] Found target release: {clean_ver} ({tag})")
+        return clean_ver, tag, data
+
+    releases_url = "https://api.github.com/repos/microsoft/onnxruntime/releases?per_page=15"
+    req = urllib.request.Request(releases_url, headers={"User-Agent": "AutoSync-Pipeline"})
+    print(f"[INFO] Fetching latest releases list from: {releases_url}")
     with urllib.request.urlopen(req) as resp:
-        data = json.loads(resp.read().decode("utf-8"))
+        releases = json.loads(resp.read().decode("utf-8"))
+
+    for data in releases:
+        tag = data["tag_name"]
+        if re.match(r"^v1\.\d+\.\d+", tag):
+            asset_names = [a["name"] for a in data.get("assets", [])]
+            if any("win-x64" in name for name in asset_names):
+                clean_ver = tag.lstrip("v")
+                print(f"[INFO] Discovered Core ONNX Runtime Release: {clean_ver} ({tag})")
+                return clean_ver, tag, data
+
+    data = releases[0]
     tag = data["tag_name"]
     clean_ver = tag.lstrip("v")
-    print(f"[INFO] Discovered ONNX Runtime Release: {clean_ver} ({tag})")
+    print(f"[INFO] Fallback to latest release: {clean_ver} ({tag})")
     return clean_ver, tag, data
 
 
