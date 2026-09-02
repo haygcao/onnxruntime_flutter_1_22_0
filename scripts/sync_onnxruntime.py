@@ -13,7 +13,9 @@ import shutil
 import zipfile
 import tarfile
 import urllib.request
+import xml.etree.ElementTree as ET
 from pathlib import Path
+
 
 # 强制 stdout / stderr 使用 UTF-8 编码，防止 Windows 终端 cp1252 编码异常
 if hasattr(sys.stdout, "reconfigure"):
@@ -66,7 +68,44 @@ BENCHMARK_MODELS = [
 ]
 
 
+def get_verified_android_version(target_version: str) -> str:
+    """双重判断获取在 Maven Central 真实存在的 onnxruntime-android 版本"""
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+    
+    # 1. 第一重：精准 HEAD 探测
+    pom_url = f"https://repo.maven.apache.org/maven2/com/microsoft/onnxruntime/onnxruntime-android/{target_version}/onnxruntime-android-{target_version}.pom"
+    try:
+        req = urllib.request.Request(pom_url, headers=headers, method="HEAD")
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            if resp.status == 200:
+                print(f"[INFO] Maven Central 精准命中 Android AAR 版本: {target_version}")
+                return target_version
+    except Exception:
+        print(f"[WARN] 目标版本 {target_version} 在 Maven Central 不存在 (404)，进入 maven-metadata.xml 元数据双重判断...")
+
+    # 2. 第二重：解析官方 maven-metadata.xml
+    metadata_url = "https://repo.maven.apache.org/maven2/com/microsoft/onnxruntime/onnxruntime-android/maven-metadata.xml"
+    try:
+        req = urllib.request.Request(metadata_url, headers=headers)
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            xml_data = resp.read()
+            root = ET.fromstring(xml_data)
+            versions = [v.text for v in root.findall(".//version") if v.text]
+            if versions:
+                stable_versions = [v for v in versions if not re.search(r"[a-zA-Z]", v)]
+                if stable_versions:
+                    latest_valid = stable_versions[-1]
+                    print(f"[INFO] 从 maven-metadata 成功匹配到最高合法版本: {latest_valid}")
+                    return latest_valid
+    except Exception as e:
+        print(f"[WARN] 解析 maven-metadata 异常: {e}")
+
+    # 3. 兜底稳定版本
+    return "1.20.0"
+
+
 def fetch_release_info(target_tag=None):
+
     if target_tag:
         url = GITHUB_TAG_API_URL.format(tag=target_tag)
         req = urllib.request.Request(url, headers={"User-Agent": "AutoSync-Pipeline"})
@@ -217,17 +256,19 @@ def sync_all_platforms(version: str, release_data: dict, temp_dir: Path):
     # 4. Android
     android_gradle = ANDROID_DIR / "build.gradle"
     if android_gradle.exists():
+        verified_android_version = get_verified_android_version(version)
         with open(android_gradle, "r", encoding="utf-8") as f:
             content = f.read()
         new_content = re.sub(
             r"(com\.microsoft\.onnxruntime:onnxruntime-android:)[^\'\"\n]+",
-            rf"\g<1>{version}",
+            rf"\g<1>{verified_android_version}",
             content,
         )
         if new_content != content:
             with open(android_gradle, "w", encoding="utf-8") as f:
                 f.write(new_content)
-            report["platforms_updated"].append("Android (Maven AAR)")
+            report["platforms_updated"].append(f"Android (Maven AAR: {verified_android_version})")
+
 
     # 5. iOS
     ios_podspec = IOS_DIR / "onnxruntime_v2.podspec"
