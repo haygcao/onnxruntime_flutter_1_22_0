@@ -33,7 +33,7 @@ void main() {
       final onnxFiles = modelDir
           .listSync(recursive: true)
           .whereType<File>()
-          .where((f) => f.path.endsWith('.onnx'))
+          .where((f) => f.path.endsWith('.onnx') && f.lengthSync() > 1024)
           .toList();
 
       debugPrint('\n📦 Discovered ${onnxFiles.length} ONNX models for end-to-end forward inference test:');

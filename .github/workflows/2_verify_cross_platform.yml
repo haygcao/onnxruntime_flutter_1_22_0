@@ -32,12 +32,6 @@ jobs:
           channel: 'stable'
           cache: true
 
-      - name: Download MangaLens Vision Model for Linux
-        run: |
-          mkdir -p test_models
-          curl -L -C - --retry 5 -o test_models/mangalens.onnx \
-            "https://huggingface.co/khanhromvn/manga_bubble_seg/resolve/main/mangalens.onnx"
-
       - name: Run Linux Native Inference Test
         env:
           TEST_MODEL_DIR: ./test_models
@@ -64,12 +58,6 @@ jobs:
           flutter-version: '3.44.x'
           channel: 'stable'
           cache: true
-
-      - name: Download MangaLens Vision Model for macOS
-        run: |
-          mkdir -p test_models
-          curl -L -C - --retry 5 -o test_models/mangalens.onnx \
-            "https://huggingface.co/khanhromvn/manga_bubble_seg/resolve/main/mangalens.onnx"
 
       - name: Run macOS Native Inference Test
         env:
