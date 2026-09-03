@@ -1,5 +1,14 @@
-# Uncomment this line to define a global platform for your project
-platform :ios, '15.1'
+# Dynamically extract minimum deployment target from plugin podspec to avoid any hardcoding
+def min_ios_deployment_target
+  podspec_path = File.expand_path('../../ios/onnxruntime_v2.podspec', __FILE__)
+  if File.exist?(podspec_path)
+    match = File.read(podspec_path).match(/s\.platform\s*=\s*:ios,\s*['"]([^'"]+)['"]/)
+    return match[1] if match
+  end
+  '12.0'
+end
+
+platform :ios, min_ios_deployment_target
 
 # CocoaPods analytics sends network stats synchronously affecting flutter build latency.
 ENV['COCOAPODS_DISABLE_STATS'] = 'true'
@@ -38,10 +47,11 @@ target 'Runner' do
 end
 
 post_install do |installer|
+  target_ver = min_ios_deployment_target
   installer.pods_project.targets.each do |target|
     flutter_additional_ios_build_settings(target)
     target.build_configurations.each do |config|
-      config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '15.1'
+      config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = target_ver
     end
   end
 end

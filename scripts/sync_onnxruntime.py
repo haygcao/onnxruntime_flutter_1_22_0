@@ -155,8 +155,14 @@ def get_verified_ios_info(target_version: str) -> tuple[str, str]:
     except Exception as e:
         print(f"[WARN] 解析 CocoaPods Specs 异常: {e}")
 
-    # 3. 兜底稳定版本与对应 Deployment Target
-    return "1.28.0", "15.1"
+    # 3. 兜底版本与对应 Deployment Target (动态从已有 podspec 继承)
+    existing_tgt = "15.1"
+    if IOS_DIR.joinpath("onnxruntime_v2.podspec").exists():
+        with open(IOS_DIR / "onnxruntime_v2.podspec", "r", encoding="utf-8") as f:
+            m = re.search(r"s\.platform\s*=\s*:ios,\s*['\"]([^'\"]+)['\"]", f.read())
+            if m:
+                existing_tgt = m.group(1)
+    return "1.28.0", existing_tgt
 
 
 def fetch_release_info(target_tag=None):
