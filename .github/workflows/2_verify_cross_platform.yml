@@ -94,8 +94,17 @@ jobs:
 
       - name: Verify iOS App Compilation (Xcode Simulator Build)
         run: |
+          # 动态获取 podspec 中声明的最高合法 iOS target (如 15.1)
+          TARGET_VER=$(grep -E "s\.platform\s*=\s*:ios" ios/onnxruntime_v2.podspec | sed -E "s/.*['"]([^'"]+)['"].*/\1/")
+          echo "🚀 Dynamically aligning iOS project deployment target to: $TARGET_VER"
+          
           cd example
           flutter pub get
+          
+          # 确保 Podfile、pbxproj 与 plist 均严格对齐该版本，彻底免疫 Flutter CLI 降级拦截
+          sed -i.bak -E "s/IPHONEOS_DEPLOYMENT_TARGET = [0-9.]+;/IPHONEOS_DEPLOYMENT_TARGET = $TARGET_VER;/g" ios/Runner.xcodeproj/project.pbxproj
+          sed -i.bak -E "s/<string>[0-9.]+<\/string>/<string>$TARGET_VER<\/string>/g" ios/Flutter/AppFrameworkInfo.plist
+          
           flutter build ios --no-codesign --simulator
 
       # ── 串行流转第 3 步：多平台验证全部绿灯通过后，派发混元模型专项测试 ──

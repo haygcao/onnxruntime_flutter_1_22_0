@@ -1,11 +1,17 @@
-# Dynamically extract minimum deployment target from plugin podspec to avoid any hardcoding
+# Dynamically extract minimum deployment target from plugin podspec
 def min_ios_deployment_target
-  podspec_path = File.expand_path('../../ios/onnxruntime_v2.podspec', __FILE__)
-  if File.exist?(podspec_path)
-    match = File.read(podspec_path).match(/s\.platform\s*=\s*:ios,\s*['"]([^'"]+)['"]/)
-    return match[1] if match
+  candidates = [
+    File.expand_path('../../../ios/onnxruntime_v2.podspec', __FILE__),
+    File.expand_path('.symlinks/plugins/onnxruntime_v2/ios/onnxruntime_v2.podspec', File.dirname(__FILE__)),
+    File.expand_path('../../ios/onnxruntime_v2.podspec', __FILE__)
+  ]
+  candidates.each do |p|
+    if File.exist?(p)
+      match = File.read(p).match(/s\.platform\s*=\s*:ios,\s*['"]([^'"]+)['"]/)
+      return match[1] if match
+    end
   end
-  '12.0'
+  '15.1'
 end
 
 platform :ios, min_ios_deployment_target
