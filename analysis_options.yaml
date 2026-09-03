@@ -4,3 +4,11 @@ analyzer:
   errors:
     subtype_of_base_or_final_is_not_base_final_or_sealed: ignore
     unused_field: ignore
+  exclude:
+    - build/**
+    - android/**
+    - ios/**
+    - web/**
+    - windows/**
+    - macos/**
+    - linux/**

@@ -1,4 +1,4 @@
-name: 2. Verify Tencent Hunyuan-MT 1.8B
+name: 3. Verify Tencent Hunyuan-MT 1.8B
 
 on:
   workflow_dispatch:
@@ -6,6 +6,11 @@ on:
 permissions:
   contents: read
   actions: write
+
+# 严格单例并发控制：绝不同时运行多个实例，防止云端资源超标
+concurrency:
+  group: hunyuan-verification
+  cancel-in-progress: false
 
 jobs:
   test-hunyuan:
@@ -47,9 +52,9 @@ jobs:
           flutter pub get
           flutter test test/llm_release_gate_test.dart
 
-      # ── 混元跑完后，主动触发下一个独立的工作流：千问模型专项测试 ──
+      # ── 串行流转第 4 步：混元测试完成后，派发千问大模型测试 ──
       - name: Trigger Next Workflow (Verify Qwen)
         shell: bash
         run: |
-          echo "🚀 Triggering next workflow: 3_verify_qwen.yml..."
-          gh workflow run "3. Verify Alibaba Qwen 3.5 0.8B" --ref auto-sync || echo "Dispatched via API"
+          echo "🚀 Triggering next workflow: 4_verify_qwen.yml..."
+          gh workflow run "4. Verify Alibaba Qwen 3.5 0.8B" --ref auto-sync || echo "Dispatched via API"

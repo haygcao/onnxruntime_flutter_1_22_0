@@ -12,7 +12,17 @@ final DynamicLibrary _dylib = () {
   }
 
   if (Platform.isMacOS) {
-    return DynamicLibrary.open('libonnxruntime.1.21.0.dylib');
+    try {
+      final macFile = File('macos/libonnxruntime.dylib');
+      if (macFile.existsSync()) {
+        return DynamicLibrary.open(macFile.absolute.path);
+      }
+      final localFile = File('libonnxruntime.dylib');
+      if (localFile.existsSync()) {
+        return DynamicLibrary.open(localFile.absolute.path);
+      }
+    } catch (_) {}
+    return DynamicLibrary.open('libonnxruntime.dylib');
   }
 
   if (Platform.isWindows) {
@@ -30,7 +40,17 @@ final DynamicLibrary _dylib = () {
   }
 
   if (Platform.isLinux) {
-    return DynamicLibrary.open('libonnxruntime.so.1.22.0');
+    try {
+      final linuxFile = File('linux/libonnxruntime.so');
+      if (linuxFile.existsSync()) {
+        return DynamicLibrary.open(linuxFile.absolute.path);
+      }
+      final localFile = File('libonnxruntime.so');
+      if (localFile.existsSync()) {
+        return DynamicLibrary.open(localFile.absolute.path);
+      }
+    } catch (_) {}
+    return DynamicLibrary.open('libonnxruntime.so');
   }
 
   throw UnsupportedError('Unknown platform: ${Platform.operatingSystem}');

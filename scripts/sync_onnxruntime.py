@@ -230,27 +230,41 @@ def sync_all_platforms(version: str, release_data: dict, temp_dir: Path):
                     f = tar.extractfile(member)
                     if f:
                         LINUX_DIR.mkdir(parents=True, exist_ok=True)
+                        so_data = f.read()
+                        LINUX_DIR.mkdir(parents=True, exist_ok=True)
                         with open(LINUX_DIR / "libonnxruntime.so", "wb") as out:
-                            out.write(f.read())
+                            out.write(so_data)
+                        with open(ROOT_DIR / "libonnxruntime.so", "wb") as out:
+                            out.write(so_data)
                         report["platforms_updated"].append("Linux (x64)")
                         break
 
-    # 3. macOS (Universal)
-    osx_universal_name = f"onnxruntime-osx-universal2-{version}.tgz"
-    osx_x64_name = f"onnxruntime-osx-x86_64-{version}.tgz"
-    osx_target = osx_universal_name if osx_universal_name in assets else (osx_x64_name if osx_x64_name in assets else None)
+    # 3. macOS (Apple Silicon / Universal / x64)
+    osx_target = None
+    for candidate in [
+        f"onnxruntime-osx-universal2-{version}.tgz",
+        f"onnxruntime-osx-arm64-{version}.tgz",
+        f"onnxruntime-osx-x86_64-{version}.tgz",
+    ]:
+        if candidate in assets:
+            osx_target = candidate
+            break
+
     if osx_target:
         tgz_path = temp_dir / osx_target
         download_file(assets[osx_target], tgz_path)
         with tarfile.open(tgz_path, "r:gz") as tar:
             for member in tar.getmembers():
-                if member.name.endswith("libonnxruntime.dylib"):
+                if member.name.endswith("libonnxruntime.dylib") or ("libonnxruntime." in member.name and member.name.endswith(".dylib")):
                     f = tar.extractfile(member)
                     if f:
+                        dylib_data = f.read()
                         MACOS_DIR.mkdir(parents=True, exist_ok=True)
                         with open(MACOS_DIR / "libonnxruntime.dylib", "wb") as out:
-                            out.write(f.read())
-                        report["platforms_updated"].append("macOS (Universal/x64)")
+                            out.write(dylib_data)
+                        with open(ROOT_DIR / "libonnxruntime.dylib", "wb") as out:
+                            out.write(dylib_data)
+                        report["platforms_updated"].append(f"macOS ({osx_target})")
                         break
 
     # 4. Android
@@ -276,7 +290,7 @@ def sync_all_platforms(version: str, release_data: dict, temp_dir: Path):
         with open(ios_podspec, "r", encoding="utf-8") as f:
             content = f.read()
         new_content = re.sub(
-            r"(s\.dependency\s+['\"]onnxruntime-c['\"],\s*['\"])[^'\"]+(['\"])",
+            r"(s\.dependency\s+['\"]onnxruntime-(?:c|objc)['\"],\s*['\"])[^'\"]+(['\"])",
             rf"\g<1>~> {version}\g<2>",
             content,
         )

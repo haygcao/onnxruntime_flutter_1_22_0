@@ -1,10 +1,15 @@
-name: 3. Verify Alibaba Qwen 3.5 0.8B
+name: 4. Verify Alibaba Qwen 3.5 0.8B
 
 on:
   workflow_dispatch:
 
 permissions:
   contents: read
+
+# 严格单例并发控制：绝不同时运行多个实例，防止云端资源超标
+concurrency:
+  group: qwen-verification
+  cancel-in-progress: false
 
 jobs:
   test-qwen:

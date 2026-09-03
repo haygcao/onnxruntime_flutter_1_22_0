@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       target_version:
-        description: 'Target ONNX Runtime Version (e.g. 1.24.0 or leave empty for latest)'
+        description: 'Target ONNX Runtime Version (e.g. 1.28.1 or leave empty for latest)'
         required: false
         default: ''
 
@@ -21,7 +21,7 @@ concurrency:
 
 jobs:
   sync-commit-and-release:
-    name: Sync, Commit & Publish Release
+    name: Sync All Platforms, Commit & Publish Release
     runs-on: windows-latest
     env:
       PYTHONIOENCODING: utf-8
@@ -65,7 +65,7 @@ jobs:
             echo "has_changes=false" >> $GITHUB_OUTPUT
           fi
 
-      - name: Run Base Model Verification Test
+      - name: Run Windows Base Model Verification Test
         if: steps.check_git.outputs.has_changes == 'true'
         env:
           TEST_MODEL_DIR: ./test_models
@@ -73,7 +73,7 @@ jobs:
           flutter pub get
           flutter test test/real_models_verification_test.dart
 
-      # ── 无论后续大模型测试如何，立刻先提交 Commit、推送 Tag 并发布 Release ──
+      # ── 无论后续测试如何，优先提交 Commit、推送 Tag 并发布 Release ──
       - name: Commit & Push Changes to Branch with Git Tag
         if: steps.check_git.outputs.has_changes == 'true'
         shell: bash
@@ -97,10 +97,10 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # ── 主动触发下一个独立的工作流：混元模型专项测试 ──
-      - name: Trigger Next Workflow (Verify Hunyuan)
+      # ── 串行流转第 2 步：派发多平台原生构建与推理验证（Linux、macOS、iOS） ──
+      - name: Trigger Next Workflow (Verify Cross-Platform)
         if: steps.check_git.outputs.has_changes == 'true'
         shell: bash
         run: |
-          echo "🚀 Triggering next workflow: 2_verify_hunyuan.yml..."
-          gh workflow run "2. Verify Tencent Hunyuan-MT 1.8B" --ref auto-sync || echo "Dispatched via API"
+          echo "🚀 Triggering next workflow: 2_verify_cross_platform.yml..."
+          gh workflow run "2. Verify Cross-Platform (Linux, macOS, iOS)" --ref auto-sync || echo "Dispatched via API"

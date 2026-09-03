@@ -1,0 +1,117 @@
+name: 2. Verify Cross-Platform (Linux, macOS, iOS)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write
+
+# 严格单例并发控制：绝不同时运行多个实例，防止云端资源超标
+concurrency:
+  group: cross-platform-verification
+  cancel-in-progress: false
+
+jobs:
+  # ── 平台 1：Linux 原生环境真实前向推理测试 ──
+  test-linux:
+    name: 1/3 Verify Linux x64 Native Inference
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: auto-sync
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.44.x'
+          channel: 'stable'
+          cache: true
+
+      - name: Download MangaLens Vision Model for Linux
+        run: |
+          mkdir -p test_models
+          curl -L -C - --retry 5 -o test_models/mangalens.onnx \
+            "https://huggingface.co/khanhromvn/manga_bubble_seg/resolve/main/mangalens.onnx"
+
+      - name: Run Linux Native Inference Test
+        env:
+          TEST_MODEL_DIR: ./test_models
+        run: |
+          flutter pub get
+          flutter test test/real_models_verification_test.dart
+
+  # ── 平台 2：macOS Apple Silicon 原生环境真实前向推理测试（必须等 Linux 结束才启动） ──
+  test-macos:
+    name: 2/3 Verify macOS Apple Silicon Native Inference
+    needs: test-linux
+    runs-on: macos-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: auto-sync
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.44.x'
+          channel: 'stable'
+          cache: true
+
+      - name: Download MangaLens Vision Model for macOS
+        run: |
+          mkdir -p test_models
+          curl -L -C - --retry 5 -o test_models/mangalens.onnx \
+            "https://huggingface.co/khanhromvn/manga_bubble_seg/resolve/main/mangalens.onnx"
+
+      - name: Run macOS Native Inference Test
+        env:
+          TEST_MODEL_DIR: ./test_models
+        run: |
+          flutter pub get
+          flutter test test/real_models_verification_test.dart
+
+  # ── 平台 3：iOS CocoaPods 依赖与 Xcode 编译完整性验证（必须等 macOS 结束才启动） ──
+  test-ios-build:
+    name: 3/3 Verify iOS CocoaPods & Xcode Build
+    needs: test-macos
+    runs-on: macos-latest
+    timeout-minutes: 25
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: auto-sync
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.44.x'
+          channel: 'stable'
+          cache: true
+
+      - name: Validate iOS Podspec Syntax & CocoaPods Specs
+        run: |
+          pod lib lint ios/onnxruntime_v2.podspec --allow-warnings --skip-import-validation
+
+      - name: Verify iOS App Compilation (Xcode Simulator Build)
+        run: |
+          cd example
+          flutter pub get
+          flutter build ios --no-codesign --simulator
+
+      # ── 串行流转第 3 步：多平台验证全部绿灯通过后，派发混元模型专项测试 ──
+      - name: Trigger Next Workflow (Verify Hunyuan)
+        run: |
+          echo "🚀 Triggering next workflow: 3_verify_hunyuan.yml..."
+          gh workflow run "3. Verify Tencent Hunyuan-MT 1.8B" --ref auto-sync || echo "Dispatched via API"
