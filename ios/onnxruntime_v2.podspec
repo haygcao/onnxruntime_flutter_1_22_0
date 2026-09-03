@@ -13,7 +13,7 @@ Pod::Spec.new do |s|
   s.source           = { :git => 'https://github.com/haygcao/onnxruntime_flutter_1_22_0.git', :tag => s.version.to_s }
 
   s.dependency 'Flutter'
-  s.dependency 'onnxruntime-objc', '~> 1.28.0'
+  s.dependency 'onnxruntime-objc', '1.28.0'
   s.platform = :ios, '12.0'
   s.static_framework = true
 

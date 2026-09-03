@@ -104,6 +104,48 @@ def get_verified_android_version(target_version: str) -> str:
     return "1.20.0"
 
 
+def get_verified_ios_version(target_version: str) -> str:
+    """双重判断获取在 CocoaPods 真实存在的 onnxruntime-objc 官方发布版本"""
+    headers = {"User-Agent": "AutoSync-Pipeline/1.0"}
+
+    # 1. 第一重：精准 HEAD 探测 CocoaPods CDN 目标版本
+    spec_url = f"https://cdn.cocoapods.org/Specs/8/2/b/onnxruntime-objc/{target_version}/onnxruntime-objc.podspec.json"
+    try:
+        req = urllib.request.Request(spec_url, headers=headers, method="HEAD")
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            if resp.status == 200:
+                print(f"[INFO] CocoaPods 精准命中 onnxruntime-objc 版本: {target_version}")
+                return target_version
+    except Exception:
+        print(f"[WARN] 目标版本 {target_version} 在 CocoaPods 不存在 (404)，进入 CocoaPods Specs 动态双重匹配...")
+
+    # 2. 第二重：查询 CocoaPods 官方 Specs 目录解析已发布的合法版本列表
+    specs_api = "https://api.github.com/repos/CocoaPods/Specs/contents/Specs/8/2/b/onnxruntime-objc"
+    try:
+        req = urllib.request.Request(specs_api, headers=headers)
+        with urllib.request.urlopen(req, timeout=6) as resp:
+            items = json.loads(resp.read().decode("utf-8"))
+            versions = [item["name"] for item in items if isinstance(item, dict) and re.match(r"^\d+\.\d+\.\d+$", item.get("name", ""))]
+            if versions:
+                def parse_v(v):
+                    return [int(x) for x in v.split(".")]
+                versions.sort(key=parse_v)
+                target_nums = parse_v(target_version) if re.match(r"^\d+\.\d+\.\d+$", target_version) else [999, 999, 999]
+                valid_versions = [v for v in versions if parse_v(v) <= target_nums]
+                if valid_versions:
+                    matched = valid_versions[-1]
+                    print(f"[INFO] 从 CocoaPods Specs 成功动态协商到最高合法版本: {matched}")
+                    return matched
+                latest = versions[-1]
+                print(f"[INFO] 返回 CocoaPods 最新稳定版本: {latest}")
+                return latest
+    except Exception as e:
+        print(f"[WARN] 解析 CocoaPods Specs 异常: {e}")
+
+    # 3. 兜底稳定版本
+    return "1.28.0"
+
+
 def fetch_release_info(target_tag=None):
 
     if target_tag:
@@ -287,19 +329,18 @@ def sync_all_platforms(version: str, release_data: dict, temp_dir: Path):
     # 5. iOS
     ios_podspec = IOS_DIR / "onnxruntime_v2.podspec"
     if ios_podspec.exists():
-        parts = version.split(".")
-        cocoapods_ver = f"~> {parts[0]}.{parts[1]}.0" if len(parts) >= 2 else f"~> {version}"
+        verified_ios_version = get_verified_ios_version(version)
         with open(ios_podspec, "r", encoding="utf-8") as f:
             content = f.read()
         new_content = re.sub(
             r"(s\.dependency\s+['\"]onnxruntime-(?:c|objc)['\"],\s*['\"])[^'\"]+(['\"])",
-            rf"\g<1>{cocoapods_ver}\g<2>",
+            rf"\g<1>{verified_ios_version}\g<2>",
             content,
         )
         if new_content != content:
             with open(ios_podspec, "w", encoding="utf-8") as f:
                 f.write(new_content)
-            report["platforms_updated"].append(f"iOS (CocoaPods: {cocoapods_ver})")
+            report["platforms_updated"].append(f"iOS (CocoaPods: {verified_ios_version})")
 
     return report
 
