@@ -14,7 +14,7 @@ Pod::Spec.new do |s|
 
   s.dependency 'Flutter'
   s.dependency 'onnxruntime-objc', '1.28.0'
-  s.platform = :ios, '12.0'
+  s.platform = :ios, '15.1'
   s.static_framework = true
 
   # Flutter.framework does not contain a i386 slice.

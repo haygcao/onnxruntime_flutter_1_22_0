@@ -104,9 +104,22 @@ def get_verified_android_version(target_version: str) -> str:
     return "1.20.0"
 
 
-def get_verified_ios_version(target_version: str) -> str:
-    """双重判断获取在 CocoaPods 真实存在的 onnxruntime-objc 官方发布版本"""
+def get_verified_ios_info(target_version: str) -> tuple[str, str]:
+    """双重判断获取 CocoaPods 真实存在的版本以及该版本官方要求的最低 iOS deployment target"""
     headers = {"User-Agent": "AutoSync-Pipeline/1.0"}
+
+    def fetch_min_ios(ver: str) -> str:
+        try:
+            url = f"https://cdn.cocoapods.org/Specs/8/2/b/onnxruntime-objc/{ver}/onnxruntime-objc.podspec.json"
+            req = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+                ios_tgt = data.get("platforms", {}).get("ios")
+                if ios_tgt:
+                    return str(ios_tgt)
+        except Exception:
+            pass
+        return "15.1"
 
     # 1. 第一重：精准 HEAD 探测 CocoaPods CDN 目标版本
     spec_url = f"https://cdn.cocoapods.org/Specs/8/2/b/onnxruntime-objc/{target_version}/onnxruntime-objc.podspec.json"
@@ -115,7 +128,7 @@ def get_verified_ios_version(target_version: str) -> str:
         with urllib.request.urlopen(req, timeout=5) as resp:
             if resp.status == 200:
                 print(f"[INFO] CocoaPods 精准命中 onnxruntime-objc 版本: {target_version}")
-                return target_version
+                return target_version, fetch_min_ios(target_version)
     except Exception:
         print(f"[WARN] 目标版本 {target_version} 在 CocoaPods 不存在 (404)，进入 CocoaPods Specs 动态双重匹配...")
 
@@ -135,15 +148,15 @@ def get_verified_ios_version(target_version: str) -> str:
                 if valid_versions:
                     matched = valid_versions[-1]
                     print(f"[INFO] 从 CocoaPods Specs 成功动态协商到最高合法版本: {matched}")
-                    return matched
+                    return matched, fetch_min_ios(matched)
                 latest = versions[-1]
                 print(f"[INFO] 返回 CocoaPods 最新稳定版本: {latest}")
-                return latest
+                return latest, fetch_min_ios(latest)
     except Exception as e:
         print(f"[WARN] 解析 CocoaPods Specs 异常: {e}")
 
-    # 3. 兜底稳定版本
-    return "1.28.0"
+    # 3. 兜底稳定版本与对应 Deployment Target
+    return "1.28.0", "15.1"
 
 
 def fetch_release_info(target_tag=None):
@@ -329,7 +342,7 @@ def sync_all_platforms(version: str, release_data: dict, temp_dir: Path):
     # 5. iOS
     ios_podspec = IOS_DIR / "onnxruntime_v2.podspec"
     if ios_podspec.exists():
-        verified_ios_version = get_verified_ios_version(version)
+        verified_ios_version, min_ios_target = get_verified_ios_info(version)
         with open(ios_podspec, "r", encoding="utf-8") as f:
             content = f.read()
         new_content = re.sub(
@@ -337,10 +350,16 @@ def sync_all_platforms(version: str, release_data: dict, temp_dir: Path):
             rf"\g<1>{verified_ios_version}\g<2>",
             content,
         )
+        # 同步对齐官方要求的最低 deployment target
+        new_content = re.sub(
+            r"(s\.platform\s*=\s*:ios,\s*['\"])[^'\"]+(['\"])",
+            rf"\g<1>{min_ios_target}\g<2>",
+            new_content,
+        )
         if new_content != content:
             with open(ios_podspec, "w", encoding="utf-8") as f:
                 f.write(new_content)
-            report["platforms_updated"].append(f"iOS (CocoaPods: {verified_ios_version})")
+            report["platforms_updated"].append(f"iOS (CocoaPods: {verified_ios_version}, Deployment Target: {min_ios_target})")
 
     return report
 
