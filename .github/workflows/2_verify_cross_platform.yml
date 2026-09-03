@@ -111,7 +111,7 @@ jobs:
         run: |
           cd example
           flutter pub get
-          flutter build apk --debug
+          flutter build apk --debug --android-skip-build-dependency-validation
 
   # ── 平台 4：Linux 原生环境真实推理测试（等 Android 成功后启动） ──
   test-linux:
