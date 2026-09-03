@@ -1,4 +1,4 @@
-name: 2. Verify Cross-Platform (iOS, macOS, Android, Linux)
+name: 2. Verify Cross-Platform (Android, iOS, macOS, Linux)
 
 on:
   workflow_dispatch:
@@ -13,9 +13,41 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # ── 平台 1：iOS CocoaPods 依赖与 Xcode 编译完整性验证（排在最前面最先验证） ──
+  # ── 平台 1：Android Maven AAR 依赖拉取与打包编译验证（排在最前面优先验证） ──
+  test-android:
+    name: 1/4 Verify Android AAR & Gradle Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: auto-sync
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.44.x'
+          channel: 'stable'
+          cache: true
+
+      - name: Build Android Debug APK
+        run: |
+          cd example
+          flutter pub get
+          flutter build apk --debug --android-skip-build-dependency-validation
+
+  # ── 平台 2：iOS CocoaPods 依赖与 Xcode 编译完整性验证（等 Android 成功后启动） ──
   test-ios:
-    name: 1/4 Verify iOS (CocoaPods & Xcode Build)
+    name: 2/4 Verify iOS (CocoaPods & Xcode Build)
+    needs: test-android
     runs-on: macos-latest
     timeout-minutes: 25
 
@@ -54,9 +86,9 @@ jobs:
 
           flutter build ios --no-codesign --simulator
 
-  # ── 平台 2：macOS Apple Silicon 原生环境真实推理测试（等 iOS 成功后启动） ──
+  # ── 平台 3：macOS Apple Silicon 原生环境真实推理测试（等 iOS 成功后启动） ──
   test-macos:
-    name: 2/4 Verify macOS Apple Silicon Native Inference
+    name: 3/4 Verify macOS Apple Silicon Native Inference
     needs: test-ios
     runs-on: macos-latest
     timeout-minutes: 20
@@ -81,42 +113,10 @@ jobs:
           flutter pub get
           flutter test test/real_models_verification_test.dart
 
-  # ── 平台 3：Android Maven AAR 依赖拉取与打包编译验证（等 macOS 成功后启动） ──
-  test-android:
-    name: 3/4 Verify Android AAR & Gradle Build
-    needs: test-macos
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          ref: auto-sync
-
-      - name: Set up Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'temurin'
-          java-version: '17'
-
-      - name: Set up Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          flutter-version: '3.44.x'
-          channel: 'stable'
-          cache: true
-
-      - name: Build Android Debug APK
-        run: |
-          cd example
-          flutter pub get
-          flutter build apk --debug --android-skip-build-dependency-validation
-
-  # ── 平台 4：Linux 原生环境真实推理测试（等 Android 成功后启动） ──
+  # ── 平台 4：Linux 原生环境真实推理测试（等 macOS 成功后启动） ──
   test-linux:
     name: 4/4 Verify Linux x64 Native Inference
-    needs: test-android
+    needs: test-macos
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:

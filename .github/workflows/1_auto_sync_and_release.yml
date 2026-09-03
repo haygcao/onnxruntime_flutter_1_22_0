@@ -103,4 +103,4 @@ jobs:
         shell: bash
         run: |
           echo "🚀 Triggering next workflow: 2_verify_cross_platform.yml..."
-          gh workflow run "2. Verify Cross-Platform (iOS, macOS, Android, Linux)" --ref auto-sync || echo "Dispatched via API"
+          gh workflow run "2. Verify Cross-Platform (Android, iOS, macOS, Linux)" --ref auto-sync || echo "Dispatched via API"
