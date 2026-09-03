@@ -356,7 +356,7 @@ def sync_all_platforms(version: str, release_data: dict, temp_dir: Path):
             rf"\g<1>{verified_ios_version}\g<2>",
             content,
         )
-        # 同步对齐官方要求的最低 deployment target
+        # 同步对齐官方要求的最低 deployment target 到 podspec
         new_content = re.sub(
             r"(s\.platform\s*=\s*:ios,\s*['\"])[^'\"]+(['\"])",
             rf"\g<1>{min_ios_target}\g<2>",
@@ -365,7 +365,23 @@ def sync_all_platforms(version: str, release_data: dict, temp_dir: Path):
         if new_content != content:
             with open(ios_podspec, "w", encoding="utf-8") as f:
                 f.write(new_content)
-            report["platforms_updated"].append(f"iOS (CocoaPods: {verified_ios_version}, Deployment Target: {min_ios_target})")
+
+        # 自动同步更新 example Xcode 工程 (project.pbxproj 与 AppFrameworkInfo.plist)，防止 Flutter 构建拦截
+        pbx_file = ROOT_DIR / "example" / "ios" / "Runner.xcodeproj" / "project.pbxproj"
+        if pbx_file.exists():
+            pbx_text = pbx_file.read_text(encoding="utf-8")
+            new_pbx = re.sub(r"(IPHONEOS_DEPLOYMENT_TARGET\s*=\s*)[^;]+;", rf"\g<1>{min_ios_target};", pbx_text)
+            if new_pbx != pbx_text:
+                pbx_file.write_text(new_pbx, encoding="utf-8")
+
+        plist_file = ROOT_DIR / "example" / "ios" / "Flutter" / "AppFrameworkInfo.plist"
+        if plist_file.exists():
+            plist_text = plist_file.read_text(encoding="utf-8")
+            new_plist = re.sub(r"(<key>MinimumOSVersion</key>\s*<string>)[^<]+(</string>)", rf"\g<1>{min_ios_target}\g<2>", plist_text)
+            if new_plist != plist_text:
+                plist_file.write_text(new_plist, encoding="utf-8")
+
+        report["platforms_updated"].append(f"iOS (CocoaPods: {verified_ios_version}, Deployment Target: {min_ios_target})")
 
     return report
 
