@@ -1,4 +1,4 @@
-name: 2. Verify Cross-Platform (Linux, macOS, iOS)
+name: 2. Verify Cross-Platform (iOS, macOS, Android, Linux)
 
 on:
   workflow_dispatch:
@@ -13,11 +13,11 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # ── 平台 1：Linux 原生环境真实前向推理测试 ──
-  test-linux:
-    name: 1/3 Verify Linux x64 Native Inference
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
+  # ── 平台 1：iOS CocoaPods 依赖与 Xcode 编译完整性验证（排在最前面最先验证） ──
+  test-ios:
+    name: 1/4 Verify iOS (CocoaPods & Xcode Build)
+    runs-on: macos-latest
+    timeout-minutes: 25
 
     steps:
       - name: Checkout repository
@@ -32,17 +32,32 @@ jobs:
           channel: 'stable'
           cache: true
 
-      - name: Run Linux Native Inference Test
-        env:
-          TEST_MODEL_DIR: ./test_models
+      - name: Validate iOS Podspec Syntax & CocoaPods Specs
         run: |
-          flutter pub get
-          flutter test test/real_models_verification_test.dart
+          pod lib lint ios/onnxruntime_v2.podspec --allow-warnings --skip-import-validation
 
-  # ── 平台 2：macOS Apple Silicon 原生环境真实前向推理测试（必须等 Linux 结束才启动） ──
+      - name: Verify iOS App Compilation (Xcode Simulator Build)
+        run: |
+          # 动态提取 podspec 中的版本号（awk 安全分词，无引号转义冲突）
+          TARGET_VER=$(awk -F"'" '/s\.platform\s*=\s*:ios/ {print $2}' ios/onnxruntime_v2.podspec)
+          if [ -z "$TARGET_VER" ]; then
+            TARGET_VER="15.1"
+          fi
+          echo "🚀 Dynamically aligning iOS deployment target to: $TARGET_VER"
+
+          cd example
+          flutter pub get
+
+          # 确保 Podfile、pbxproj 与 plist 严格对齐该版本，杜绝 Flutter CLI 降级
+          sed -i.bak -E "s/IPHONEOS_DEPLOYMENT_TARGET = [0-9.]+;/IPHONEOS_DEPLOYMENT_TARGET = $TARGET_VER;/g" ios/Runner.xcodeproj/project.pbxproj
+          sed -i.bak -E "s/<string>[0-9.]+<\/string>/<string>$TARGET_VER<\/string>/g" ios/Flutter/AppFrameworkInfo.plist
+
+          flutter build ios --no-codesign --simulator
+
+  # ── 平台 2：macOS Apple Silicon 原生环境真实推理测试（等 iOS 成功后启动） ──
   test-macos:
-    name: 2/3 Verify macOS Apple Silicon Native Inference
-    needs: test-linux
+    name: 2/4 Verify macOS Apple Silicon Native Inference
+    needs: test-ios
     runs-on: macos-latest
     timeout-minutes: 20
 
@@ -66,12 +81,44 @@ jobs:
           flutter pub get
           flutter test test/real_models_verification_test.dart
 
-  # ── 平台 3：iOS CocoaPods 依赖与 Xcode 编译完整性验证（必须等 macOS 结束才启动） ──
-  test-ios-build:
-    name: 3/3 Verify iOS CocoaPods & Xcode Build
+  # ── 平台 3：Android Maven AAR 依赖拉取与打包编译验证（等 macOS 成功后启动） ──
+  test-android:
+    name: 3/4 Verify Android AAR & Gradle Build
     needs: test-macos
-    runs-on: macos-latest
+    runs-on: ubuntu-latest
     timeout-minutes: 25
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: auto-sync
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.44.x'
+          channel: 'stable'
+          cache: true
+
+      - name: Build Android Debug APK
+        run: |
+          cd example
+          flutter pub get
+          flutter build apk --debug
+
+  # ── 平台 4：Linux 原生环境真实推理测试（等 Android 成功后启动） ──
+  test-linux:
+    name: 4/4 Verify Linux x64 Native Inference
+    needs: test-android
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -88,26 +135,14 @@ jobs:
           channel: 'stable'
           cache: true
 
-      - name: Validate iOS Podspec Syntax & CocoaPods Specs
+      - name: Run Linux Native Inference Test
+        env:
+          TEST_MODEL_DIR: ./test_models
         run: |
-          pod lib lint ios/onnxruntime_v2.podspec --allow-warnings --skip-import-validation
-
-      - name: Verify iOS App Compilation (Xcode Simulator Build)
-        run: |
-          # 动态获取 podspec 中声明的最高合法 iOS target (如 15.1)
-          TARGET_VER=$(grep -E "s\.platform\s*=\s*:ios" ios/onnxruntime_v2.podspec | sed -E "s/.*['"]([^'"]+)['"].*/\1/")
-          echo "🚀 Dynamically aligning iOS project deployment target to: $TARGET_VER"
-          
-          cd example
           flutter pub get
-          
-          # 确保 Podfile、pbxproj 与 plist 均严格对齐该版本，彻底免疫 Flutter CLI 降级拦截
-          sed -i.bak -E "s/IPHONEOS_DEPLOYMENT_TARGET = [0-9.]+;/IPHONEOS_DEPLOYMENT_TARGET = $TARGET_VER;/g" ios/Runner.xcodeproj/project.pbxproj
-          sed -i.bak -E "s/<string>[0-9.]+<\/string>/<string>$TARGET_VER<\/string>/g" ios/Flutter/AppFrameworkInfo.plist
-          
-          flutter build ios --no-codesign --simulator
+          flutter test test/real_models_verification_test.dart
 
-      # ── 串行流转第 3 步：多平台验证全部绿灯通过后，派发混元模型专项测试 ──
+      # ── 串行流转第 3 步：多平台验证全绿通过后，派发混元模型专项测试 ──
       - name: Trigger Next Workflow (Verify Hunyuan)
         run: |
           echo "🚀 Triggering next workflow: 3_verify_hunyuan.yml..."
