@@ -287,17 +287,19 @@ def sync_all_platforms(version: str, release_data: dict, temp_dir: Path):
     # 5. iOS
     ios_podspec = IOS_DIR / "onnxruntime_v2.podspec"
     if ios_podspec.exists():
+        parts = version.split(".")
+        cocoapods_ver = f"~> {parts[0]}.{parts[1]}.0" if len(parts) >= 2 else f"~> {version}"
         with open(ios_podspec, "r", encoding="utf-8") as f:
             content = f.read()
         new_content = re.sub(
             r"(s\.dependency\s+['\"]onnxruntime-(?:c|objc)['\"],\s*['\"])[^'\"]+(['\"])",
-            rf"\g<1>~> {version}\g<2>",
+            rf"\g<1>{cocoapods_ver}\g<2>",
             content,
         )
         if new_content != content:
             with open(ios_podspec, "w", encoding="utf-8") as f:
                 f.write(new_content)
-            report["platforms_updated"].append("iOS (CocoaPods/SPM)")
+            report["platforms_updated"].append(f"iOS (CocoaPods: {cocoapods_ver})")
 
     return report
 
