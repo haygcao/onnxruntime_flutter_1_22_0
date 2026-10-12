@@ -16,7 +16,7 @@ class OrtEnv {
 
   late ffi.Pointer<bg.OrtApi> _ortApiPtr;
 
-  static OrtApiVersion _apiVersion = OrtApiVersion.api28;
+  static OrtApiVersion _apiVersion = OrtApiVersion.api31;
 
   OrtEnv._() {
     final getApiFn = onnxRuntimeBinding.OrtGetApiBase()
@@ -198,6 +198,9 @@ enum OrtApiVersion {
 
   /// Auto-synced API version from header.
   api30(30),
+
+  /// Auto-synced API version from header.
+  api31(31),
 
   trainingApi1(1);
 
